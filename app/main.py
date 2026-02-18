@@ -472,12 +472,26 @@ def products_page(
     products = db.execute(
         text(
             f"""
-            SELECT p.id, p.product_name, p.last_visit, p.action, p.status, p.next_action, p.last_contact, p.notes,
+            SELECT p.id,
+                   p.product_name,
+                   lv.last_visit,
+                   p.action,
+                   p.status,
+                   p.next_action,
+                   p.last_contact,
+                   p.notes,
                    c.id AS customer_id, c.cust_code, c.name AS customer_name,
                    COALESCE(t.name, '') AS territory
             FROM products p
             JOIN customers c ON c.id = p.customer_id
             LEFT JOIN territories t ON t.id = c.territory_id
+            LEFT JOIN (
+              SELECT e.customer_id, MAX(e.planned_date) AS last_visit
+              FROM cvm_month_entries e
+              WHERE e.completed_manual = TRUE
+                AND e.planned_date IS NOT NULL
+              GROUP BY e.customer_id
+            ) lv ON lv.customer_id = p.customer_id
             {where_sql}
             ORDER BY c.cust_code, p.product_name
             """
@@ -561,7 +575,7 @@ def update_product(
     product_id: int,
     customer_id: int = Form(...),
     product_name: str = Form(...),
-    last_visit: str = Form(""),
+    last_visit: str | None = Form(default=None),
     action: str = Form(""),
     status: str = Form(""),
     next_action: str = Form(""),
@@ -583,7 +597,7 @@ def update_product(
                 UPDATE products
                 SET customer_id = :customer_id,
                     product_name = :product_name,
-                    last_visit = :last_visit,
+                    last_visit = COALESCE(:last_visit, last_visit),
                     action = NULLIF(:action, ''),
                     status = NULLIF(:status, ''),
                     next_action = NULLIF(:next_action, ''),
@@ -1113,11 +1127,25 @@ def list_products(db: Session = Depends(get_db)):
     rows = db.execute(
         text(
             """
-            SELECT p.id, p.product_name, p.last_visit, p.action, p.status, p.next_action, p.last_contact, p.notes,
+            SELECT p.id,
+                   p.product_name,
+                   lv.last_visit,
+                   p.action,
+                   p.status,
+                   p.next_action,
+                   p.last_contact,
+                   p.notes,
                    c.cust_code, c.name AS customer_name, COALESCE(t.name, '') AS territory
             FROM products p
             JOIN customers c ON c.id = p.customer_id
             LEFT JOIN territories t ON t.id = c.territory_id
+            LEFT JOIN (
+              SELECT e.customer_id, MAX(e.planned_date) AS last_visit
+              FROM cvm_month_entries e
+              WHERE e.completed_manual = TRUE
+                AND e.planned_date IS NOT NULL
+              GROUP BY e.customer_id
+            ) lv ON lv.customer_id = p.customer_id
             ORDER BY c.cust_code, p.product_name
             LIMIT 1000
             """

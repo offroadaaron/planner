@@ -10,7 +10,6 @@
       <option value="{{ c.id }}">{{ c.cust_code }} - {{ c.name }} ({{ c.territory }})</option>
       {% endfor %}
     </select>
-    <input type="date" name="last_visit" placeholder="Last Visit" />
     <select name="action">
       <option value="">Action</option>
       {% for a in actions %}
@@ -28,6 +27,7 @@
     <input name="notes" placeholder="Notes" />
     <button type="submit">Add Product</button>
   </form>
+  <p class="subtle">Last Visit is pulled automatically from completed planner visits.</p>
 </section>
 
 <section class="card">
@@ -104,7 +104,7 @@
             </select>
           </td>
           <td>{{ p.territory }}</td>
-          <td><input type="date" name="last_visit" value="{{ p.last_visit or '' }}" /></td>
+          <td>{{ p.last_visit or '-' }}</td>
           <td>
             <select name="action">
               <option value=""></option>

@@ -35,7 +35,7 @@
         </select>
       </div>
 
-      <button type="submit">Load CVM</button>
+      <button type="submit" class="button-primary">Load CVM</button>
 
       <div class="cvm-export-wrap" aria-label="Export current CVM table">
         <button id="cvm-export-csv" type="button" class="button-secondary">Export CSV</button>
@@ -128,7 +128,6 @@
 
 <script>
   (() => {
-    const wrap = document.getElementById("cvm-grid-wrap");
     const forms = Array.from(document.querySelectorAll(".cvm-autosave-form"));
     const exportCsvButton = document.getElementById("cvm-export-csv");
     const exportXlsxButton = document.getElementById("cvm-export-xlsx");
@@ -148,19 +147,6 @@
         toast.remove();
       }, 3400);
     };
-
-    if (wrap) {
-      const refreshScrollShadows = () => {
-        const left = wrap.scrollLeft > 2;
-        const right = wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft > 2;
-        wrap.classList.toggle("is-scroll-left", left);
-        wrap.classList.toggle("is-scroll-right", right);
-      };
-
-      refreshScrollShadows();
-      wrap.addEventListener("scroll", refreshScrollShadows, { passive: true });
-      window.addEventListener("resize", refreshScrollShadows);
-    }
 
     const timers = new Map();
 

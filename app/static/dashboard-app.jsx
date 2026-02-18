@@ -1,5 +1,5 @@
 const { useEffect, useMemo, useState } = React;
-const Icons = window.lucideReact || {};
+const Icons = window.LucideReact || window.lucideReact || {};
 
 const {
   LayoutDashboard,
@@ -1348,13 +1348,8 @@ function UpcomingEventsTable({ events, loading, onToast }) {
 }
 
 function DashboardApp({ data }) {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const { toasts, push, dismiss } = useToasts();
-
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 420);
-    return () => clearTimeout(timer);
-  }, []);
 
   const counts = data.counts || {};
   const settings = data.settings || {};

@@ -35,7 +35,7 @@ body {
   background: radial-gradient(circle at 10% -5%, #fbfdff 0%, #f4f7fd 45%, #eef3fa 100%);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  overflow-x: clip;
+  overflow-x: hidden;
 }
 
 body.sheet-open {
@@ -64,6 +64,7 @@ a {
 
 .app-shell {
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .app-header {
@@ -299,6 +300,7 @@ a {
   padding: 16px;
   display: grid;
   gap: 24px;
+  min-width: 0;
 }
 
 .page-header {
@@ -332,6 +334,7 @@ a {
   border-radius: calc(var(--radius) + 2px);
   box-shadow: var(--shadow-soft);
   padding: 16px;
+  min-width: 0;
 }
 
 .card-header {
@@ -712,18 +715,21 @@ button.button-danger:hover {
 .planner-scroll {
   position: relative;
   overflow: auto;
+  max-width: 100%;
   max-height: min(74vh, 820px);
   border-radius: calc(var(--radius) + 2px);
   border: 1px solid var(--border);
   background: #f7fafd;
   padding: 10px;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .planner-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(92px, 1fr));
+  grid-template-columns: repeat(7, minmax(118px, 1fr));
   gap: 8px;
+  min-width: 860px;
 }
 
 .planner-head {
@@ -759,6 +765,7 @@ button.button-danger:hover {
   background: #fff;
   border-radius: 12px;
   padding: 10px;
+  overflow: hidden;
   overflow-wrap: anywhere;
   transition: 170ms ease;
 }
@@ -802,12 +809,13 @@ button.button-danger:hover {
   align-items: center;
   min-height: 24px;
   border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 0.71rem;
+  padding: 1px 7px;
+  font-size: 0.69rem;
   font-weight: 700;
   border: 1px solid #cfdcec;
   color: #334155;
   background: #f8fbff;
+  white-space: nowrap;
 }
 
 .day-visits {
@@ -823,8 +831,11 @@ button.button-danger:hover {
   background: #f8fbff;
   font-size: 0.76rem;
   color: #334155;
-  display: inline-flex;
-  align-items: center;
+  display: block;
+  line-height: 1.25;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .visit-pill.is-completed {
@@ -977,6 +988,12 @@ button.button-danger:hover {
   align-items: end;
 }
 
+.cvm-control-row > button {
+  width: auto;
+  min-width: 152px;
+  padding-inline: 16px;
+}
+
 .cvm-control {
   display: grid;
   gap: 6px;
@@ -992,6 +1009,9 @@ button.button-danger:hover {
 
 .cvm-export-wrap {
   display: inline-flex;
+  justify-self: end;
+  align-self: end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1008,40 +1028,13 @@ button.button-danger:hover {
   border: 1px solid var(--border);
   background: #ffffff;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
-.data-grid-wrap::before,
-.data-grid-wrap::after {
-  content: "";
-  position: sticky;
-  top: 0;
-  width: 14px;
-  height: 100%;
-  pointer-events: none;
-  z-index: 6;
-  opacity: 0;
-  transition: opacity 160ms ease;
-}
-
-.data-grid-wrap::before {
-  left: 0;
-  float: left;
-  background: linear-gradient(90deg, rgba(15, 23, 42, 0.14), transparent);
-}
-
-.data-grid-wrap::after {
-  right: 0;
-  float: right;
-  background: linear-gradient(270deg, rgba(15, 23, 42, 0.14), transparent);
-}
-
-.data-grid-wrap.is-scroll-left::before {
-  opacity: 1;
-}
-
-.data-grid-wrap.is-scroll-right::after {
-  opacity: 1;
-}
+/* Root cause: full-height gradient pseudo-elements on the scroller were painting
+   above table cells during horizontal scroll (especially Safari/iPad), which
+   looked like a tinted overlay band. Keep the scroller clean and rely on sticky
+   layering + borders instead of overlay shadows here. */
 
 .cvm-table {
   min-width: 1820px;
@@ -1052,8 +1045,12 @@ button.button-danger:hover {
 .cvm-table thead th {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 20;
   background: #f4f7fc;
+}
+
+.cvm-table tbody td {
+  background: #ffffff;
 }
 
 .cvm-table tbody tr:nth-child(even) td {
@@ -1063,14 +1060,23 @@ button.button-danger:hover {
 .cvm-table .sticky-col-1,
 .cvm-table .sticky-col-2 {
   position: sticky;
-  background: inherit;
-  z-index: 4;
+  z-index: 10;
+  background: #ffffff;
+}
+
+.cvm-table tbody tr:nth-child(even) .sticky-col-1,
+.cvm-table tbody tr:nth-child(even) .sticky-col-2 {
+  background: #fcfdff;
 }
 
 .cvm-table thead .sticky-col-1,
 .cvm-table thead .sticky-col-2 {
-  z-index: 7;
+  z-index: 30;
   background: #edf3fb;
+}
+
+.cvm-table thead .sticky-col-1 {
+  z-index: 31;
 }
 
 .cvm-table .sticky-col-1 {
@@ -1259,6 +1265,16 @@ button.button-danger:hover {
   .cvm-control-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .cvm-control-row > button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .cvm-export-wrap {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
 }
 
 @media (max-width: 767px) {
@@ -1295,9 +1311,14 @@ button.button-danger:hover {
   }
 
   .planner-load-wrap button,
-  .cvm-control-row .button-primary,
+  .cvm-control-row > button,
   .cvm-control-row .button-secondary {
     width: 100%;
+  }
+
+  .cvm-export-wrap {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .planner-scroll {
