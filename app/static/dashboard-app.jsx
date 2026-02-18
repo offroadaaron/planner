@@ -354,7 +354,7 @@ function AppHeader() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-200/90 bg-white/85 backdrop-blur-md supports-[backdrop-filter]:bg-white/72">
-        <div className="mx-auto flex w-full max-w-7xl items-center gap-2 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-[var(--layout-max)] items-center gap-2 px-4 py-3 sm:px-6 lg:px-8">
           <a
             href="/"
             className={cx(
@@ -444,9 +444,9 @@ function AppHeader() {
 
 function AppShell({ children }) {
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-slate-900 antialiased">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--bg)] text-slate-900 antialiased">
       <AppHeader />
-      <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      <main className="mx-auto w-full max-w-[var(--layout-max)] space-y-6 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
     </div>
   );
 }
