@@ -21,7 +21,7 @@
   <table>
     <thead>
       <tr>
-        <th>Cust Code</th><th>Name</th><th>Trade Name</th><th>Territory</th><th>Group</th><th>IWS</th>
+        <th>Cust Code</th><th>Name</th><th>Trade Name</th><th>Territory</th><th>Group</th><th>IWS</th><th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -33,9 +33,14 @@
         <td>{{ c.territory }}</td>
         <td>{{ c.group_name or "" }}</td>
         <td>{{ c.iws_code or "" }}</td>
+        <td>
+          <form method="post" action="/customers/{{ c.id }}/delete" class="inline-actions" onsubmit="return confirm('Delete this customer and related data?');">
+            <button type="submit" class="button-danger">Delete</button>
+          </form>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="6">No customers yet.</td></tr>
+      <tr><td colspan="7">No customers yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

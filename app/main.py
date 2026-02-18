@@ -373,6 +373,30 @@ def create_customer(
     return RedirectResponse(url="/customers", status_code=303)
 
 
+@app.post("/customers/{customer_id}/delete")
+def delete_customer(customer_id: int, db: Session = Depends(get_db)):
+    ensure_customer_exists(db, customer_id)
+
+    try:
+        # Explicitly delete related rows so behavior is consistent across DB engines.
+        db.execute(text("DELETE FROM visit_events WHERE customer_id = :customer_id"), {"customer_id": customer_id})
+        db.execute(text("DELETE FROM products WHERE customer_id = :customer_id"), {"customer_id": customer_id})
+        db.execute(text("DELETE FROM cvm_month_entries WHERE customer_id = :customer_id"), {"customer_id": customer_id})
+        # Stores use ON DELETE SET NULL in Postgres schema, so remove them here as part of client delete.
+        db.execute(text("DELETE FROM stores WHERE customer_id = :customer_id"), {"customer_id": customer_id})
+        db.execute(text("DELETE FROM customers WHERE id = :customer_id"), {"customer_id": customer_id})
+        db.commit()
+    except (IntegrityError, DataError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Could not delete customer. Check related data.") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unexpected database error while deleting customer")
+        raise HTTPException(status_code=500, detail="Unexpected server error while deleting customer.") from exc
+
+    return RedirectResponse(url="/customers", status_code=303)
+
+
 @app.get("/products")
 def products_page(
     request: Request,

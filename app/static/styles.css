@@ -413,6 +413,29 @@ button.button-secondary:hover {
   background: #f3f7fd;
 }
 
+.button-danger,
+button.button-danger {
+  width: auto;
+  min-width: 96px;
+  min-height: 38px;
+  border: 1px solid #efb4b4;
+  background: #fff5f5;
+  color: #8c1d1d;
+  font-weight: 650;
+  padding: 0 12px;
+}
+
+.button-danger:hover,
+button.button-danger:hover {
+  background: #ffe9e9;
+}
+
+.inline-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
 .filter-actions,
 .month-nav,
 .import-actions {

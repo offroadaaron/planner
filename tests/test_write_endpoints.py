@@ -447,6 +447,72 @@ def test_create_customer_blank_required_fields_renders_form_error(client_and_eng
     assert "Cust Code and Customer Name are required." in response.text
 
 
+def test_delete_customer_removes_customer_and_related_data(client_and_engine):
+    client, engine = client_and_engine
+    seed_customer(engine, 1, "C1", "Customer 1")
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO stores (id, customer_id, address_1, created_at)
+                VALUES (1, 1, '1 Test St', NOW())
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO products (id, customer_id, product_name, created_at, updated_at)
+                VALUES (1, 1, 'Test Product', NOW(), NOW())
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO cvm_month_entries (id, customer_id, year, month, planned_date, completed_manual, updated_at)
+                VALUES (1, 1, 2026, 2, '2026-02-10', 1, NOW())
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO visit_events (id, customer_id, store_id, event_type, event_date, created_at)
+                VALUES (1, 1, 1, 'planned', '2026-02-10', NOW())
+                """
+            )
+        )
+
+    response = client.post("/customers/1/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/customers"
+
+    with engine.begin() as conn:
+        customer_count = conn.execute(text("SELECT COUNT(*) FROM customers WHERE id = 1")).scalar_one()
+        stores_count = conn.execute(text("SELECT COUNT(*) FROM stores WHERE customer_id = 1")).scalar_one()
+        products_count = conn.execute(text("SELECT COUNT(*) FROM products WHERE customer_id = 1")).scalar_one()
+        cvm_count = conn.execute(text("SELECT COUNT(*) FROM cvm_month_entries WHERE customer_id = 1")).scalar_one()
+        events_count = conn.execute(text("SELECT COUNT(*) FROM visit_events WHERE customer_id = 1")).scalar_one()
+
+    assert customer_count == 0
+    assert stores_count == 0
+    assert products_count == 0
+    assert cvm_count == 0
+    assert events_count == 0
+
+
+def test_delete_customer_rejects_unknown_customer(client_and_engine):
+    client, _ = client_and_engine
+
+    response = client.post("/customers/999/delete", follow_redirects=False)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid customer_id"
+
+
 def test_cvm_month_update_rejects_unknown_customer(client_and_engine):
     client, _ = client_and_engine
 
