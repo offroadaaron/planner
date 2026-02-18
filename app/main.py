@@ -2,7 +2,7 @@ import calendar
 from collections import defaultdict
 from datetime import date, datetime
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -10,12 +10,12 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, engine
+from app.workbook_import import import_planner_workbook
 
 app = FastAPI(title="Calendar Planner")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-VALID_EVENT_TYPES = {"planned", "completed", "annual_leave", "public_holiday", "note"}
 MONTH_SHORT = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 
 
@@ -37,6 +37,28 @@ def ensure_cvm_tables():
                 )
                 """
             )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS products (
+                  id BIGSERIAL PRIMARY KEY,
+                  customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+                  product_name TEXT NOT NULL,
+                  last_visit DATE,
+                  action TEXT,
+                  status TEXT,
+                  next_action TEXT,
+                  last_contact DATE,
+                  notes TEXT,
+                  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+        conn.execute(
+            text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS cvm_notes TEXT")
         )
 
 
@@ -66,6 +88,42 @@ def parse_optional_int(value: str | None) -> int | None:
         raise HTTPException(status_code=400, detail="Invalid integer value") from exc
 
 
+def parse_optional_date(value: str | None, field_name: str, required: bool = False) -> date | None:
+    if value is None:
+        if required:
+            raise HTTPException(status_code=400, detail=f"{field_name} is required")
+        return None
+
+    cleaned = value.strip()
+    if not cleaned:
+        if required:
+            raise HTTPException(status_code=400, detail=f"{field_name} is required")
+        return None
+
+    try:
+        return date.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}. Use YYYY-MM-DD.") from exc
+
+
+def ensure_customer_exists(db: Session, customer_id: int):
+    exists = db.execute(
+        text("SELECT 1 FROM customers WHERE id = :customer_id"),
+        {"customer_id": customer_id},
+    ).scalar()
+    if not exists:
+        raise HTTPException(status_code=400, detail="Invalid customer_id")
+
+
+def ensure_product_exists(db: Session, product_id: int):
+    exists = db.execute(
+        text("SELECT 1 FROM products WHERE id = :product_id"),
+        {"product_id": product_id},
+    ).scalar()
+    if not exists:
+        raise HTTPException(status_code=400, detail="Invalid product_id")
+
+
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
@@ -76,17 +134,18 @@ def health(db: Session = Depends(get_db)):
 def dashboard(request: Request, db: Session = Depends(get_db)):
     counts = {
         "customers": db.execute(text("SELECT COUNT(*) FROM customers")).scalar_one(),
-        "stores": db.execute(text("SELECT COUNT(*) FROM stores")).scalar_one(),
-        "events": db.execute(text("SELECT COUNT(*) FROM visit_events")).scalar_one(),
+        "products": db.execute(text("SELECT COUNT(*) FROM products")).scalar_one(),
+        "cvm_entries": db.execute(text("SELECT COUNT(*) FROM cvm_month_entries")).scalar_one(),
     }
-    upcoming = db.execute(
+    recent_products = db.execute(
         text(
             """
-            SELECT ve.event_date, ve.event_type, COALESCE(c.name, 'N/A') AS customer_name, ve.status
-            FROM visit_events ve
-            LEFT JOIN customers c ON c.id = ve.customer_id
-            WHERE ve.event_date >= CURRENT_DATE
-            ORDER BY ve.event_date ASC
+            SELECT p.updated_at, p.product_name, COALESCE(c.name, 'N/A') AS customer_name,
+                   COALESCE(t.name, '') AS territory, COALESCE(p.status, '') AS status
+            FROM products p
+            JOIN customers c ON c.id = p.customer_id
+            LEFT JOIN territories t ON t.id = c.territory_id
+            ORDER BY p.updated_at DESC
             LIMIT 15
             """
         )
@@ -99,7 +158,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         {
             "request": request,
             "counts": counts,
-            "upcoming": upcoming,
+            "recent_products": recent_products,
             "settings": settings,
             "today": date.today(),
         },
@@ -175,106 +234,118 @@ def create_customer(
     return RedirectResponse(url="/customers", status_code=303)
 
 
-@app.get("/stores")
-def stores_page(request: Request, db: Session = Depends(get_db)):
-    customers = db.execute(
-        text("SELECT id, cust_code, name FROM customers ORDER BY cust_code")
-    ).mappings().all()
-    stores = db.execute(
-        text(
-            """
-            SELECT s.id, s.city, s.state, s.address_1, s.postcode,
-                   c.cust_code, c.name AS customer_name
-            FROM stores s
-            LEFT JOIN customers c ON c.id = s.customer_id
-            ORDER BY s.id DESC
-            LIMIT 200
-            """
-        )
-    ).mappings().all()
-    return templates.TemplateResponse(
-        "stores.html", {"request": request, "stores": stores, "customers": customers}
-    )
-
-
-@app.post("/stores")
-def create_store(
-    customer_id: int = Form(...),
-    address_1: str = Form(...),
-    city: str = Form(...),
-    state: str = Form(...),
-    postcode: str = Form(""),
-    country: str = Form("AUSTRALIA"),
+@app.get("/products")
+def products_page(
+    request: Request,
+    customer_id: int | None = Query(default=None),
+    territory: str = Query(default=""),
+    action: str = Query(default=""),
+    status: str = Query(default=""),
+    q: str = Query(default=""),
     db: Session = Depends(get_db),
 ):
-    db.execute(
-        text(
-            """
-            INSERT INTO stores (customer_id, address_1, city, state, postcode, country, created_at)
-            VALUES (:customer_id, :address_1, :city, :state, NULLIF(:postcode, ''), NULLIF(:country, ''), NOW())
-            """
-        ),
-        {
-            "customer_id": customer_id,
-            "address_1": address_1.strip(),
-            "city": city.strip(),
-            "state": state.strip(),
-            "postcode": postcode.strip(),
-            "country": country.strip(),
-        },
-    )
-    db.commit()
-    return RedirectResponse(url="/stores", status_code=303)
+    territory_filter = territory.strip()
+    action_filter = action.strip()
+    status_filter = status.strip()
+    text_filter = q.strip()
 
-
-@app.get("/events")
-def events_page(request: Request, db: Session = Depends(get_db)):
     customers = db.execute(
-        text("SELECT id, cust_code, name FROM customers ORDER BY cust_code")
-    ).mappings().all()
-    stores = db.execute(
-        text("SELECT id, city, state, address_1 FROM stores ORDER BY id DESC LIMIT 300")
-    ).mappings().all()
-    events = db.execute(
         text(
             """
-            SELECT ve.id, ve.event_date, ve.event_type, ve.action, ve.status, ve.notes,
-                   c.cust_code, c.name AS customer_name,
-                   s.city, s.state
-            FROM visit_events ve
-            LEFT JOIN customers c ON c.id = ve.customer_id
-            LEFT JOIN stores s ON s.id = ve.store_id
-            ORDER BY ve.event_date DESC, ve.id DESC
-            LIMIT 300
+            SELECT c.id, c.cust_code, c.name, COALESCE(t.name, '') AS territory
+            FROM customers c
+            LEFT JOIN territories t ON t.id = c.territory_id
+            ORDER BY c.cust_code
             """
         )
     ).mappings().all()
-    statuses = db.execute(
-        text("SELECT value FROM reference_values WHERE category='status' AND active ORDER BY sort_order")
-    ).scalars().all()
     actions = db.execute(
         text("SELECT value FROM reference_values WHERE category='action' AND active ORDER BY sort_order")
     ).scalars().all()
+    statuses = db.execute(
+        text("SELECT value FROM reference_values WHERE category='status' AND active ORDER BY sort_order")
+    ).scalars().all()
+    territories = db.execute(
+        text(
+            """
+            SELECT DISTINCT COALESCE(t.name, '') AS territory
+            FROM customers c
+            LEFT JOIN territories t ON t.id = c.territory_id
+            WHERE COALESCE(t.name, '') <> ''
+            ORDER BY territory
+            """
+        )
+    ).scalars().all()
+
+    where_clauses: list[str] = []
+    sql_params: dict[str, object] = {}
+
+    if customer_id is not None:
+        where_clauses.append("c.id = :customer_id")
+        sql_params["customer_id"] = customer_id
+    if territory_filter:
+        where_clauses.append("COALESCE(t.name, '') = :territory")
+        sql_params["territory"] = territory_filter
+    if action_filter:
+        where_clauses.append("COALESCE(p.action, '') = :action")
+        sql_params["action"] = action_filter
+    if status_filter:
+        where_clauses.append("COALESCE(p.status, '') = :status")
+        sql_params["status"] = status_filter
+    if text_filter:
+        where_clauses.append(
+            """
+            (
+              LOWER(COALESCE(p.product_name, '')) LIKE :text_filter
+              OR LOWER(COALESCE(c.name, '')) LIKE :text_filter
+              OR LOWER(COALESCE(c.cust_code, '')) LIKE :text_filter
+              OR LOWER(COALESCE(p.notes, '')) LIKE :text_filter
+            )
+            """
+        )
+        sql_params["text_filter"] = f"%{text_filter.lower()}%"
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    products = db.execute(
+        text(
+            f"""
+            SELECT p.id, p.product_name, p.last_visit, p.action, p.status, p.next_action, p.last_contact, p.notes,
+                   c.id AS customer_id, c.cust_code, c.name AS customer_name,
+                   COALESCE(t.name, '') AS territory
+            FROM products p
+            JOIN customers c ON c.id = p.customer_id
+            LEFT JOIN territories t ON t.id = c.territory_id
+            {where_sql}
+            ORDER BY c.cust_code, p.product_name
+            """
+        ),
+        sql_params,
+    ).mappings().all()
     return templates.TemplateResponse(
-        "events.html",
+        "products.html",
         {
             "request": request,
-            "events": events,
+            "products": products,
             "customers": customers,
-            "stores": stores,
-            "statuses": statuses,
             "actions": actions,
-            "event_types": sorted(VALID_EVENT_TYPES),
+            "statuses": statuses,
+            "territories": territories,
+            "filters": {
+                "customer_id": customer_id,
+                "territory": territory_filter,
+                "action": action_filter,
+                "status": status_filter,
+                "q": text_filter,
+            },
         },
     )
 
 
-@app.post("/events")
-def create_event(
+@app.post("/products")
+def create_product(
     customer_id: int = Form(...),
-    store_id: int = Form(...),
-    event_type: str = Form(...),
-    event_date: str = Form(...),
+    product_name: str = Form(...),
+    last_visit: str = Form(""),
     action: str = Form(""),
     status: str = Form(""),
     next_action: str = Form(""),
@@ -282,34 +353,97 @@ def create_event(
     notes: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    normalized_type = event_type.strip().lower()
-    if normalized_type not in VALID_EVENT_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid event_type")
+    ensure_customer_exists(db, customer_id)
+    last_visit_value = parse_optional_date(last_visit, "last_visit")
+    last_contact_value = parse_optional_date(last_contact, "last_contact")
+    if not product_name.strip():
+        raise HTTPException(status_code=400, detail="product_name is required")
 
-    db.execute(
-        text(
-            """
-            INSERT INTO visit_events
-              (customer_id, store_id, event_type, event_date, action, status, next_action, last_contact, notes, created_at)
-            VALUES
-              (:customer_id, :store_id, :event_type, :event_date, NULLIF(:action, ''), NULLIF(:status, ''),
-               NULLIF(:next_action, ''), NULLIF(:last_contact, '')::date, NULLIF(:notes, ''), NOW())
-            """
-        ),
-        {
-            "customer_id": customer_id,
-            "store_id": store_id,
-            "event_type": normalized_type,
-            "event_date": event_date,
-            "action": action.strip(),
-            "status": status.strip(),
-            "next_action": next_action.strip(),
-            "last_contact": last_contact.strip(),
-            "notes": notes.strip(),
-        },
-    )
-    db.commit()
-    return RedirectResponse(url="/events", status_code=303)
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO products
+                  (customer_id, product_name, last_visit, action, status, next_action, last_contact, notes, created_at, updated_at)
+                VALUES
+                  (:customer_id, :product_name, :last_visit, NULLIF(:action, ''), NULLIF(:status, ''),
+                   NULLIF(:next_action, ''), :last_contact, NULLIF(:notes, ''), NOW(), NOW())
+                """
+            ),
+            {
+                "customer_id": customer_id,
+                "product_name": product_name.strip(),
+                "last_visit": last_visit_value,
+                "action": action.strip(),
+                "status": status.strip(),
+                "next_action": next_action.strip(),
+                "last_contact": last_contact_value,
+                "notes": notes.strip(),
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Could not create product: {exc}") from exc
+
+    return RedirectResponse(url="/products", status_code=303)
+
+
+@app.post("/products/{product_id}")
+def update_product(
+    product_id: int,
+    customer_id: int = Form(...),
+    product_name: str = Form(...),
+    last_visit: str = Form(""),
+    action: str = Form(""),
+    status: str = Form(""),
+    next_action: str = Form(""),
+    last_contact: str = Form(""),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    ensure_product_exists(db, product_id)
+    ensure_customer_exists(db, customer_id)
+    last_visit_value = parse_optional_date(last_visit, "last_visit")
+    last_contact_value = parse_optional_date(last_contact, "last_contact")
+    if not product_name.strip():
+        raise HTTPException(status_code=400, detail="product_name is required")
+
+    try:
+        db.execute(
+            text(
+                """
+                UPDATE products
+                SET customer_id = :customer_id,
+                    product_name = :product_name,
+                    last_visit = :last_visit,
+                    action = NULLIF(:action, ''),
+                    status = NULLIF(:status, ''),
+                    next_action = NULLIF(:next_action, ''),
+                    last_contact = :last_contact,
+                    notes = NULLIF(:notes, ''),
+                    updated_at = NOW()
+                WHERE id = :product_id
+                """
+            ),
+            {
+                "product_id": product_id,
+                "customer_id": customer_id,
+                "product_name": product_name.strip(),
+                "last_visit": last_visit_value,
+                "action": action.strip(),
+                "status": status.strip(),
+                "next_action": next_action.strip(),
+                "last_contact": last_contact_value,
+                "notes": notes.strip(),
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Could not update product: {exc}") from exc
+
+    return RedirectResponse(url="/products", status_code=303)
 
 
 @app.get("/calendar")
@@ -318,6 +452,7 @@ def calendar_page(
     month: int = Query(default=datetime.utcnow().month, ge=1, le=12),
     year: int | None = Query(default=None),
     territory_id: str = Query(default=""),
+    week_start_day: str = Query(default=""),
     db: Session = Depends(get_db),
 ):
     setting_row = db.execute(
@@ -325,31 +460,23 @@ def calendar_page(
     ).mappings().first()
     if year is None:
         year = int(setting_row["calendar_year"]) if setting_row else datetime.utcnow().year
-    week_start_day = setting_row["week_start_day"] if setting_row else "monday"
+
+    requested_week_start = week_start_day.strip().lower()
+    persisted_week_start = str(setting_row["week_start_day"]).lower() if setting_row else "monday"
+    if requested_week_start in {"monday", "sunday"}:
+        resolved_week_start = requested_week_start
+        if requested_week_start != persisted_week_start:
+            db.execute(
+                text("UPDATE calendar_settings SET week_start_day = :week_start_day WHERE id = 1"),
+                {"week_start_day": requested_week_start},
+            )
+            db.commit()
+    else:
+        resolved_week_start = persisted_week_start if persisted_week_start in {"monday", "sunday"} else "monday"
 
     territories = db.execute(text("SELECT id, name FROM territories ORDER BY name")).mappings().all()
-    start, end = month_window(year, month)
-
     territory_id_value = parse_optional_int(territory_id)
-
-    event_rows = db.execute(
-        text(
-            """
-            SELECT ve.event_date, ve.event_type, c.id AS customer_id, COALESCE(c.cust_code, '') AS cust_code,
-                   COALESCE(c.name, 'Unassigned') AS customer_name,
-                   COALESCE(c.trade_name, '') AS trade_name,
-                   COALESCE(s.city || ', ' || s.state, '') AS location,
-                   ve.notes, ve.status, ve.action
-            FROM visit_events ve
-            LEFT JOIN customers c ON c.id = ve.customer_id
-            LEFT JOIN stores s ON s.id = ve.store_id
-            WHERE ve.event_date BETWEEN :start AND :end
-              AND (:territory_id IS NULL OR c.territory_id = :territory_id)
-            ORDER BY ve.event_date, ve.id
-            """
-        ),
-        {"start": start, "end": end, "territory_id": territory_id_value},
-    ).mappings().all()
+    month_start, month_end = month_window(year, month)
 
     # CVM month entries are the primary planning source for this grid.
     cvm_rows = db.execute(
@@ -358,17 +485,9 @@ def calendar_page(
             SELECT e.planned_date, e.completed_manual, c.id AS customer_id,
                    COALESCE(c.cust_code, '') AS cust_code,
                    COALESCE(c.name, 'Unassigned') AS customer_name,
-                   COALESCE(c.trade_name, '') AS trade_name,
-                   COALESCE(fs.city || ', ' || fs.state, '') AS location
+                   COALESCE(c.trade_name, '') AS trade_name
             FROM cvm_month_entries e
             JOIN customers c ON c.id = e.customer_id
-            LEFT JOIN LATERAL (
-                SELECT city, state
-                FROM stores s
-                WHERE s.customer_id = c.id
-                ORDER BY s.id
-                LIMIT 1
-            ) fs ON TRUE
             WHERE e.year = :year
               AND e.month = :month
               AND e.planned_date IS NOT NULL
@@ -379,66 +498,87 @@ def calendar_page(
         {"year": year, "month": month, "territory_id": territory_id_value},
     ).mappings().all()
 
-    day_items = defaultdict(lambda: {"planned": [], "completed": []})
+    holiday_rows = db.execute(
+        text(
+            """
+            SELECT holiday_date, name
+            FROM public_holidays
+            WHERE holiday_date BETWEEN :start_date AND :end_date
+              AND (
+                :territory_id IS NULL
+                OR territory_id IS NULL
+                OR territory_id = :territory_id
+              )
+            ORDER BY holiday_date, name
+            """
+        ),
+        {
+            "start_date": month_start,
+            "end_date": month_end,
+            "territory_id": territory_id_value,
+        },
+    ).mappings().all()
+
+    leave_rows = db.execute(
+        text(
+            """
+            SELECT start_date, end_date, COALESCE(rep_name, 'Annual Leave') AS rep_name,
+                   COALESCE(notes, '') AS notes
+            FROM annual_leaves
+            WHERE start_date <= :end_date
+              AND end_date >= :start_date
+              AND (
+                :territory_id IS NULL
+                OR territory_id IS NULL
+                OR territory_id = :territory_id
+              )
+            ORDER BY start_date, rep_name
+            """
+        ),
+        {
+            "start_date": month_start,
+            "end_date": month_end,
+            "territory_id": territory_id_value,
+        },
+    ).mappings().all()
+
+    day_items = defaultdict(lambda: {"planned": [], "completed": [], "holiday": [], "leave": []})
     planned_total = 0
     completed_total = 0
 
-    # One row per customer/date in planner. Completed always wins over planned.
-    status_by_key: dict[tuple, dict[str, object]] = {}
-
-    def upsert_status(key: tuple, day: int, text_value: str, is_completed: bool):
-        entry = status_by_key.get(key)
-        if entry is None:
-            entry = {"day": day, "text": text_value, "planned": False, "completed": False}
-            status_by_key[key] = entry
-        elif len(text_value) > len(str(entry["text"])):
-            # Keep the most descriptive label when both sources provide one.
-            entry["text"] = text_value
-
-        if is_completed:
-            entry["completed"] = True
-            entry["planned"] = False
-        elif not entry["completed"]:
-            entry["planned"] = True
-
-    for row in event_rows:
-        day = row["event_date"].day
-        title = f"{row['cust_code']} {row['customer_name']}".strip()
-        detail_parts = [x for x in [row["trade_name"], row["location"], row["action"], row["status"]] if x]
-        detail = " | ".join(detail_parts)
-        note = row["notes"] or ""
-        item_text = title if not detail else f"{title} ({detail})"
-        if note:
-            item_text = f"{item_text} - {note}"
-
-        if row["customer_id"] is not None:
-            key = ("cust", row["customer_id"], row["event_date"])
-        else:
-            key = ("anon", row["event_date"], row["cust_code"], row["customer_name"], row["location"])
-        upsert_status(key, day, item_text, row["event_type"] == "completed")
-
-    # Pull CVM entries into planner so monthly date/tick saves are always visible.
     for row in cvm_rows:
         planned_date = row["planned_date"]
         day = planned_date.day
         title = f"{row['cust_code']} {row['customer_name']}".strip()
-        detail_parts = [x for x in [row["trade_name"], row["location"]] if x]
+        detail_parts = [x for x in [row["trade_name"]] if x]
         detail = f" ({' | '.join(detail_parts)})" if detail_parts else ""
         item_text = f"{title}{detail}"
-        key = ("cust", row["customer_id"], planned_date)
-        upsert_status(key, day, item_text, bool(row["completed_manual"]))
-
-    for entry in status_by_key.values():
-        day = int(entry["day"])
-        text_value = str(entry["text"])
-        if bool(entry["completed"]):
-            day_items[day]["completed"].append(text_value)
+        if bool(row["completed_manual"]):
+            day_items[day]["completed"].append(item_text)
             completed_total += 1
-        elif bool(entry["planned"]):
-            day_items[day]["planned"].append(text_value)
+        else:
+            day_items[day]["planned"].append(item_text)
             planned_total += 1
 
-    firstweekday = 0 if week_start_day == "monday" else 6
+    for row in holiday_rows:
+        holiday_day = row["holiday_date"].day
+        day_items[holiday_day]["holiday"].append(str(row["name"]))
+
+    leave_day_total = 0
+    for row in leave_rows:
+        start_date = max(month_start, row["start_date"])
+        end_date = min(month_end, row["end_date"])
+        label = str(row["rep_name"]).strip()
+        if row["notes"]:
+            label = f"{label} - {row['notes']}"
+
+        cursor = start_date
+        while cursor <= end_date:
+            day_items[cursor.day]["leave"].append(label)
+            leave_day_total += 1
+            cursor = date.fromordinal(cursor.toordinal() + 1)
+
+    firstweekday = 0 if resolved_week_start == "monday" else 6
     cal = calendar.Calendar(firstweekday=firstweekday)
     weeks = []
     for week_dates in cal.monthdatescalendar(year, month):
@@ -455,8 +595,13 @@ def calendar_page(
         weeks.append(week_cells)
 
     weekday_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    if week_start_day == "sunday":
+    if resolved_week_start == "sunday":
         weekday_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+    prev_month = 12 if month == 1 else month - 1
+    prev_year = year - 1 if month == 1 else year
+    next_month = 1 if month == 12 else month + 1
+    next_year = year + 1 if month == 12 else year
 
     return templates.TemplateResponse(
         "calendar.html",
@@ -467,11 +612,17 @@ def calendar_page(
             "month_name": calendar.month_name[month],
             "weeks": weeks,
             "weekday_names": weekday_names,
-            "week_start_day": week_start_day,
+            "week_start_day": resolved_week_start,
             "planned_total": planned_total,
             "completed_total": completed_total,
+            "holiday_total": len(holiday_rows),
+            "leave_day_total": leave_day_total,
             "territories": territories,
             "territory_id": territory_id_value,
+            "prev_month": prev_month,
+            "prev_year": prev_year,
+            "next_month": next_month,
+            "next_year": next_year,
         },
     )
 
@@ -490,7 +641,6 @@ def cvm_page(
         year = int(setting_row["calendar_year"]) if setting_row else datetime.utcnow().year
 
     territory_id_value = parse_optional_int(territory_id)
-
     territories = db.execute(text("SELECT id, name FROM territories ORDER BY name")).mappings().all()
 
     rows = db.execute(
@@ -498,13 +648,12 @@ def cvm_page(
             """
             SELECT c.id, COALESCE(t.name, '') AS territory, c.cust_code, c.name AS customer_name,
                    COALESCE(c.trade_name, '') AS trade_name,
-                   COALESCE(MIN(s.sort_bucket), '') AS sort_bucket
+                   COALESCE(c.cvm_notes, '') AS cvm_notes,
+                   COALESCE(c.group_name, '') AS sort_bucket
             FROM customers c
             LEFT JOIN territories t ON t.id = c.territory_id
-            LEFT JOIN stores s ON s.customer_id = c.id
             WHERE (:territory_id IS NULL OR c.territory_id = :territory_id)
-            GROUP BY c.id, t.name, c.cust_code, c.name, c.trade_name
-            ORDER BY COALESCE(MIN(s.sort_bucket), 'zzz'), c.name
+            ORDER BY COALESCE(c.group_name, 'zzz'), c.name
             """
         ),
         {"territory_id": territory_id_value},
@@ -579,51 +728,233 @@ def cvm_month_update(
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="Invalid month")
 
+    ensure_customer_exists(db, customer_id)
+    planned_date_value = parse_optional_date(planned_date, "planned_date")
     is_completed = bool(completed_manual)
-    has_date = bool(planned_date.strip())
+    has_date = planned_date_value is not None
     if is_completed and not has_date:
         is_completed = False
 
-    if not has_date and not is_completed:
-        db.execute(
-            text(
-                """
-                DELETE FROM cvm_month_entries
-                WHERE customer_id = :customer_id
-                  AND year = :year
-                  AND month = :month
-                """
-            ),
-            {"customer_id": customer_id, "year": year, "month": month},
-        )
-    else:
-        db.execute(
-            text(
-                """
-                INSERT INTO cvm_month_entries
-                  (customer_id, year, month, planned_date, completed_manual, updated_at)
-                VALUES
-                  (:customer_id, :year, :month, NULLIF(:planned_date, '')::date, :completed_manual, NOW())
-                ON CONFLICT (customer_id, year, month)
-                DO UPDATE SET
-                  planned_date = EXCLUDED.planned_date,
-                  completed_manual = EXCLUDED.completed_manual,
-                  updated_at = NOW()
-                """
-            ),
-            {
-                "customer_id": customer_id,
-                "year": year,
-                "month": month,
-                "planned_date": planned_date.strip(),
-                "completed_manual": is_completed,
-            },
-        )
+    try:
+        if not has_date and not is_completed:
+            db.execute(
+                text(
+                    """
+                    DELETE FROM cvm_month_entries
+                    WHERE customer_id = :customer_id
+                      AND year = :year
+                      AND month = :month
+                    """
+                ),
+                {"customer_id": customer_id, "year": year, "month": month},
+            )
+        else:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO cvm_month_entries
+                      (customer_id, year, month, planned_date, completed_manual, updated_at)
+                    VALUES
+                      (:customer_id, :year, :month, :planned_date, :completed_manual, NOW())
+                    ON CONFLICT (customer_id, year, month)
+                    DO UPDATE SET
+                      planned_date = EXCLUDED.planned_date,
+                      completed_manual = EXCLUDED.completed_manual,
+                      updated_at = NOW()
+                    """
+                ),
+                {
+                    "customer_id": customer_id,
+                    "year": year,
+                    "month": month,
+                    "planned_date": planned_date_value,
+                    "completed_manual": is_completed,
+                },
+            )
 
-    db.commit()
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Could not save CVM month entry: {exc}") from exc
+
     territory_id_value = parse_optional_int(territory_id)
     territory_param = f"&territory_id={territory_id_value}" if territory_id_value else ""
     return RedirectResponse(url=f"/cvm?year={year}{territory_param}", status_code=303)
+
+
+@app.post("/cvm/notes-update")
+def cvm_notes_update(
+    customer_id: int = Form(...),
+    notes: str = Form(""),
+    year: int = Form(...),
+    territory_id: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    ensure_customer_exists(db, customer_id)
+    try:
+        db.execute(
+            text("UPDATE customers SET cvm_notes = NULLIF(:notes, '') WHERE id = :customer_id"),
+            {"customer_id": customer_id, "notes": notes.strip()},
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Could not save CVM notes: {exc}") from exc
+
+    territory_id_value = parse_optional_int(territory_id)
+    territory_param = f"&territory_id={territory_id_value}" if territory_id_value else ""
+    return RedirectResponse(url=f"/cvm?year={year}{territory_param}", status_code=303)
+
+
+@app.get("/import")
+def import_page(request: Request):
+    return templates.TemplateResponse(
+        "import.html",
+        {
+            "request": request,
+            "result": None,
+            "error": "",
+            "uploaded_name": "",
+            "year_override": "",
+            "import_mode": "preview",
+            "upsert_policy": "merge",
+            "validation_mode": "standard",
+            "duplicate_policy": "last_wins",
+        },
+    )
+
+
+@app.post("/import/workbook")
+async def import_workbook(
+    request: Request,
+    workbook_file: UploadFile = File(...),
+    year_override: str = Form(""),
+    import_mode: str = Form("apply"),
+    upsert_policy: str = Form("merge"),
+    validation_mode: str = Form("standard"),
+    duplicate_policy: str = Form("last_wins"),
+    db: Session = Depends(get_db),
+):
+    mode = import_mode.strip().lower() or "apply"
+    if mode not in {"preview", "apply"}:
+        return templates.TemplateResponse(
+            "import.html",
+            {
+                "request": request,
+                "result": None,
+                "error": "Invalid import mode. Use preview or apply.",
+                "uploaded_name": workbook_file.filename or "",
+                "year_override": year_override,
+                "import_mode": mode,
+                "upsert_policy": upsert_policy,
+                "validation_mode": validation_mode,
+                "duplicate_policy": duplicate_policy,
+            },
+            status_code=400,
+        )
+
+    year_value = None
+    if year_override.strip():
+        year_value = parse_optional_int(year_override)
+        if year_value is None or year_value < 2000 or year_value > 2100:
+            return templates.TemplateResponse(
+                "import.html",
+                {
+                    "request": request,
+                    "result": None,
+                    "error": "Year override must be between 2000 and 2100.",
+                    "uploaded_name": workbook_file.filename or "",
+                    "year_override": year_override,
+                    "import_mode": mode,
+                    "upsert_policy": upsert_policy,
+                    "validation_mode": validation_mode,
+                    "duplicate_policy": duplicate_policy,
+                },
+                status_code=400,
+            )
+
+    payload = await workbook_file.read()
+    try:
+        result = import_planner_workbook(
+            db,
+            content=payload,
+            filename=workbook_file.filename or "workbook.xlsx",
+            year_override=year_value,
+            upsert_policy=upsert_policy,
+            validation_mode=validation_mode,
+            duplicate_policy=duplicate_policy,
+            dry_run=(mode == "preview"),
+        )
+        if mode == "preview":
+            db.rollback()
+        else:
+            if result.get("can_apply", True):
+                db.commit()
+            else:
+                db.rollback()
+                return templates.TemplateResponse(
+                    "import.html",
+                    {
+                        "request": request,
+                        "result": result,
+                        "error": "Import blocked by validation rules. Review blockers and row-level issues.",
+                        "uploaded_name": workbook_file.filename or "",
+                        "year_override": str(year_value or ""),
+                        "import_mode": mode,
+                        "upsert_policy": upsert_policy,
+                        "validation_mode": validation_mode,
+                        "duplicate_policy": duplicate_policy,
+                    },
+                    status_code=400,
+                )
+        return templates.TemplateResponse(
+            "import.html",
+            {
+                "request": request,
+                "result": result,
+                "error": "",
+                "uploaded_name": workbook_file.filename or "",
+                "year_override": str(year_value or ""),
+                "import_mode": mode,
+                "upsert_policy": upsert_policy,
+                "validation_mode": validation_mode,
+                "duplicate_policy": duplicate_policy,
+            },
+        )
+    except HTTPException as exc:
+        db.rollback()
+        return templates.TemplateResponse(
+            "import.html",
+            {
+                "request": request,
+                "result": None,
+                "error": str(exc.detail),
+                "uploaded_name": workbook_file.filename or "",
+                "year_override": year_override,
+                "import_mode": mode,
+                "upsert_policy": upsert_policy,
+                "validation_mode": validation_mode,
+                "duplicate_policy": duplicate_policy,
+            },
+            status_code=400,
+        )
+    except Exception as exc:
+        db.rollback()
+        return templates.TemplateResponse(
+            "import.html",
+            {
+                "request": request,
+                "result": None,
+                "error": f"Unexpected import error: {exc}",
+                "uploaded_name": workbook_file.filename or "",
+                "year_override": year_override,
+                "import_mode": mode,
+                "upsert_policy": upsert_policy,
+                "validation_mode": validation_mode,
+                "duplicate_policy": duplicate_policy,
+            },
+            status_code=500,
+        )
 
 
 @app.get("/api/customers")
@@ -642,32 +973,19 @@ def list_customers(db: Session = Depends(get_db)):
     return {"items": [dict(r) for r in rows]}
 
 
-@app.get("/api/events")
-def list_events(
-    start: date | None = None,
-    end: date | None = None,
-    db: Session = Depends(get_db),
-):
-    where = []
-    params = {}
-    if start is not None:
-        where.append("ve.event_date >= :start")
-        params["start"] = start
-    if end is not None:
-        where.append("ve.event_date <= :end")
-        params["end"] = end
-
-    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-    sql = text(
-        f"""
-        SELECT ve.id, ve.event_date, ve.event_type, ve.action, ve.status, ve.next_action,
-               ve.last_contact, ve.notes, c.cust_code, c.name AS customer_name
-        FROM visit_events ve
-        LEFT JOIN customers c ON c.id = ve.customer_id
-        {where_sql}
-        ORDER BY ve.event_date DESC, ve.id DESC
-        LIMIT 500
-        """
-    )
-    rows = db.execute(sql, params).mappings().all()
+@app.get("/api/products")
+def list_products(db: Session = Depends(get_db)):
+    rows = db.execute(
+        text(
+            """
+            SELECT p.id, p.product_name, p.last_visit, p.action, p.status, p.next_action, p.last_contact, p.notes,
+                   c.cust_code, c.name AS customer_name, COALESCE(t.name, '') AS territory
+            FROM products p
+            JOIN customers c ON c.id = p.customer_id
+            LEFT JOIN territories t ON t.id = c.territory_id
+            ORDER BY c.cust_code, p.product_name
+            LIMIT 1000
+            """
+        )
+    ).mappings().all()
     return {"items": [dict(r) for r in rows]}

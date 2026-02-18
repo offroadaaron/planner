@@ -1,6 +1,6 @@
 # Calendar Planner App
 
-Dockerized web + database application for the Excel planner workflow (customers, stores, visit events, monthly planning calendar).
+Dockerized web + database application for the Excel planner workflow (customers, products, CVM monthly planner, and calendar).
 
 ## Stack
 
@@ -25,8 +25,8 @@ Then open:
 - Database schema for:
   - `territories`
   - `customers`
-  - `stores`
-  - `visit_events`
+  - `products`
+  - `cvm_month_entries`
   - `calendar_settings`
   - `public_holidays`
   - `annual_leaves`
@@ -35,16 +35,16 @@ Then open:
 - UI pages:
   - Dashboard
   - Customers CRUD (create/list)
-  - Stores CRUD (create/list)
-  - Visit Events CRUD (create/list)
-  - Month Calendar view (planned/completed counters per day)
+  - Products CRUD (create/list/filter/update)
+  - CVM View (monthly date/done grid + notes)
+  - Month Calendar view (planned/completed + holidays/leave + week-start toggle)
+  - Workbook Import (.xlsm/.xlsx) with Preview (dry-run), row-level issue reporting, upsert policy controls, strict validation mode, and duplicate-handling policy
 - JSON endpoints:
   - `GET /api/customers`
-  - `GET /api/events?start=YYYY-MM-DD&end=YYYY-MM-DD`
+  - `GET /api/products`
 
 ## Notes for importing from your old workbook
 
 1. Load customer/territory data into `customers` + `territories`.
-2. Load store details into `stores`.
-3. Unpivot repeated action/status/next-action columns into multiple rows in `visit_events`.
-4. Use `event_type` values (`planned`, `completed`, `annual_leave`, `public_holiday`, `note`) to drive calendar rendering.
+2. Load product tracking rows into `products`.
+3. Use CVM monthly cells (`planned_date` + `completed_manual`) in `cvm_month_entries` to drive calendar rendering.

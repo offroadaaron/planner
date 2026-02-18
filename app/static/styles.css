@@ -258,3 +258,114 @@ button {
   padding: 4px 8px;
   font-size: 12px;
 }
+
+.filter-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  align-items: end;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-actions button,
+.filter-actions .button-secondary {
+  width: auto;
+  min-width: 120px;
+}
+
+.button-secondary {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #b9c8db;
+  color: var(--ink);
+  background: #fff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.month-nav {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.badge.holiday {
+  background: #fff4d6;
+  color: #8a5a00;
+}
+
+.badge.leave {
+  background: #efe8ff;
+  color: #4b2877;
+}
+
+.cvm-notes-form {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.cvm-notes-form textarea {
+  resize: vertical;
+  min-height: 56px;
+  font-size: 12px;
+}
+
+.cvm-notes-form button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.import-error {
+  border-color: #d44545;
+  background: #fff5f5;
+}
+
+.import-warning {
+  border-color: #f0c24a;
+  background: #fffaf0;
+}
+
+.import-warning ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.import-error ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.import-actions {
+  display: flex;
+  gap: 8px;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+}
+
+.import-actions button {
+  width: auto;
+  min-width: 180px;
+}
+
+button.button-secondary {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid #b9c8db;
+}
+
+.import-issues-table {
+  min-width: 760px;
+}
+
+.import-issues-table td:first-child {
+  text-transform: capitalize;
+}

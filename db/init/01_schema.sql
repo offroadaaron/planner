@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS customers (
   iws_code TEXT,
   old_value TEXT,
   old_name TEXT,
+  cvm_notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -42,6 +43,20 @@ CREATE TABLE IF NOT EXISTS stores (
   sort_bucket TEXT,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id BIGSERIAL PRIMARY KEY,
+  customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  product_name TEXT NOT NULL,
+  last_visit DATE,
+  action TEXT,
+  status TEXT,
+  next_action TEXT,
+  last_contact DATE,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS reference_values (
@@ -96,6 +111,7 @@ CREATE TABLE IF NOT EXISTS visit_events (
 
 CREATE INDEX IF NOT EXISTS idx_customers_territory_id ON customers (territory_id);
 CREATE INDEX IF NOT EXISTS idx_stores_customer_id ON stores (customer_id);
+CREATE INDEX IF NOT EXISTS idx_products_customer_id ON products (customer_id);
 CREATE INDEX IF NOT EXISTS idx_visit_events_event_date ON visit_events (event_date);
 CREATE INDEX IF NOT EXISTS idx_visit_events_customer_id ON visit_events (customer_id);
 CREATE INDEX IF NOT EXISTS idx_reference_values_category ON reference_values (category);

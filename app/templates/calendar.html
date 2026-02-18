@@ -5,6 +5,10 @@
   <form method="get" action="/calendar" class="grid">
     <input type="number" min="1" max="12" name="month" value="{{ month }}" />
     <input type="number" min="2000" max="2100" name="year" value="{{ year }}" />
+    <select name="week_start_day">
+      <option value="monday" {% if week_start_day == 'monday' %}selected{% endif %}>Week starts Monday</option>
+      <option value="sunday" {% if week_start_day == 'sunday' %}selected{% endif %}>Week starts Sunday</option>
+    </select>
     <select name="territory_id">
       <option value="">All Territories</option>
       {% for t in territories %}
@@ -13,6 +17,12 @@
     </select>
     <button type="submit">Load Planner</button>
   </form>
+
+  <div class="month-nav">
+    <a class="button-secondary" href="/calendar?month={{ prev_month }}&year={{ prev_year }}&week_start_day={{ week_start_day }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}">&lt; {{ prev_month }}/{{ prev_year }}</a>
+    <a class="button-secondary" href="/calendar?month={{ next_month }}&year={{ next_year }}&week_start_day={{ week_start_day }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}">{{ next_month }}/{{ next_year }} &gt;</a>
+  </div>
+
   <p class="subtle">Week starts on {{ week_start_day }}.</p>
 </section>
 
@@ -20,6 +30,8 @@
   <div class="stats">
     <div class="stat"><strong>{{ planned_total }}</strong><br/>Planned</div>
     <div class="stat"><strong>{{ completed_total }}</strong><br/>Completed</div>
+    <div class="stat"><strong>{{ holiday_total }}</strong><br/>Public Holidays</div>
+    <div class="stat"><strong>{{ leave_day_total }}</strong><br/>Leave Days</div>
   </div>
 </section>
 
@@ -48,6 +60,20 @@
       <div class="planner-list">
         {% for line in day['items'].get('completed', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
       </div>
+
+      {% if day['items'].get('holiday', [])|length > 0 %}
+      <div class="planner-row"><span class="badge holiday">Holiday {{ day['items'].get('holiday', [])|length }}</span></div>
+      <div class="planner-list">
+        {% for line in day['items'].get('holiday', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
+      </div>
+      {% endif %}
+
+      {% if day['items'].get('leave', [])|length > 0 %}
+      <div class="planner-row"><span class="badge leave">Leave {{ day['items'].get('leave', [])|length }}</span></div>
+      <div class="planner-list">
+        {% for line in day['items'].get('leave', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
+      </div>
+      {% endif %}
       {% endif %}
     </div>
     {% endfor %}

@@ -5,28 +5,29 @@
   <p class="subtle">Today: {{ today }}</p>
   <div class="stats">
     <div class="stat"><strong>{{ counts.customers }}</strong><br/>Customers</div>
-    <div class="stat"><strong>{{ counts.stores }}</strong><br/>Stores</div>
-    <div class="stat"><strong>{{ counts.events }}</strong><br/>Visit Events</div>
+    <div class="stat"><strong>{{ counts.products }}</strong><br/>Products</div>
+    <div class="stat"><strong>{{ counts.cvm_entries }}</strong><br/>CVM Entries</div>
     <div class="stat"><strong>{{ settings.calendar_year if settings else "-" }}</strong><br/>Calendar Year</div>
   </div>
 </section>
 
 <section class="card">
-  <h2>Upcoming Events</h2>
+  <h2>Recent Product Updates</h2>
   <table>
     <thead>
-      <tr><th>Date</th><th>Type</th><th>Customer</th><th>Status</th></tr>
+      <tr><th>Updated</th><th>Product</th><th>Customer</th><th>Territory</th><th>Status</th></tr>
     </thead>
     <tbody>
-      {% for e in upcoming %}
+      {% for p in recent_products %}
       <tr>
-        <td>{{ e.event_date }}</td>
-        <td>{{ e.event_type }}</td>
-        <td>{{ e.customer_name }}</td>
-        <td>{{ e.status or "" }}</td>
+        <td>{{ p.updated_at }}</td>
+        <td>{{ p.product_name }}</td>
+        <td>{{ p.customer_name }}</td>
+        <td>{{ p.territory }}</td>
+        <td>{{ p.status or "" }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="4">No events found.</td></tr>
+      <tr><td colspan="5">No products found.</td></tr>
       {% endfor %}
     </tbody>
   </table>

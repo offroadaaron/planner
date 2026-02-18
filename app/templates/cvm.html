@@ -23,6 +23,7 @@
         <th>SORT</th>
         <th>Customer Name</th>
         <th>Trade Name</th>
+        <th>Notes/Comments</th>
         <th>Last Completed</th>
         <th>Total Planned</th>
         <th>Total Completed</th>
@@ -39,6 +40,15 @@
         <td>{{ r.sort_bucket }}</td>
         <td>{{ r.customer_name }}</td>
         <td>{{ r.trade_name }}</td>
+        <td>
+          <form method="post" action="/cvm/notes-update" class="cvm-notes-form" autocomplete="off">
+            <input type="hidden" name="customer_id" value="{{ r.id }}" />
+            <input type="hidden" name="year" value="{{ year }}" />
+            <input type="hidden" name="territory_id" value="{{ territory_id or '' }}" />
+            <textarea name="notes" rows="3" placeholder="Notes/Comments">{{ r.cvm_notes or '' }}</textarea>
+            <button type="submit">Save Notes</button>
+          </form>
+        </td>
         <td>{{ r.last_completed or '' }}</td>
         <td>{{ r.planned_total }}</td>
         <td>{{ r.completed_total }}</td>
@@ -61,7 +71,7 @@
         {% endfor %}
       </tr>
       {% else %}
-      <tr><td colspan="20">No customer rows available yet.</td></tr>
+      <tr><td colspan="21">No customer rows available yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

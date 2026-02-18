@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Products</h1>
+  <form method="post" action="/products" class="grid">
+    <input name="product_name" placeholder="Product" required />
+    <select name="customer_id" required>
+      <option value="">Customer</option>
+      {% for c in customers %}
+      <option value="{{ c.id }}">{{ c.cust_code }} - {{ c.name }} ({{ c.territory }})</option>
+      {% endfor %}
+    </select>
+    <input type="date" name="last_visit" placeholder="Last Visit" />
+    <select name="action">
+      <option value="">Action</option>
+      {% for a in actions %}
+      <option value="{{ a }}">{{ a }}</option>
+      {% endfor %}
+    </select>
+    <select name="status">
+      <option value="">Status</option>
+      {% for s in statuses %}
+      <option value="{{ s }}">{{ s }}</option>
+      {% endfor %}
+    </select>
+    <input name="next_action" placeholder="Next Action" />
+    <input type="date" name="last_contact" placeholder="Last Contact" />
+    <input name="notes" placeholder="Notes" />
+    <button type="submit">Add Product</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Filter Products</h2>
+  <form method="get" action="/products" class="filter-grid">
+    <input name="q" value="{{ filters.q }}" placeholder="Search product, customer, code or notes" />
+
+    <select name="customer_id">
+      <option value="">All Customers</option>
+      {% for c in customers %}
+      <option value="{{ c.id }}" {% if filters.customer_id == c.id %}selected{% endif %}>{{ c.cust_code }} - {{ c.name }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="territory">
+      <option value="">All Territories</option>
+      {% for t in territories %}
+      <option value="{{ t }}" {% if filters.territory == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="action">
+      <option value="">All Actions</option>
+      {% for a in actions %}
+      <option value="{{ a }}" {% if filters.action == a %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="status">
+      <option value="">All Statuses</option>
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+
+    <div class="filter-actions">
+      <button type="submit">Apply Filters</button>
+      <a class="button-secondary" href="/products">Clear</a>
+    </div>
+  </form>
+  <p class="subtle">Showing {{ products|length }} result{% if products|length != 1 %}s{% endif %}</p>
+</section>
+
+<section class="card table-scroll">
+  <table class="matrix-table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Customer Name</th>
+        <th>Territory</th>
+        <th>Last Visit</th>
+        <th>ACTION</th>
+        <th>STATUS</th>
+        <th>NEXT ACTION</th>
+        <th>LAST CONTACT [Enter dates only]</th>
+        <th>NOTES</th>
+        <th>Save</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      <tr>
+        <form method="post" action="/products/{{ p.id }}">
+          <td>
+            <input type="text" name="product_name" value="{{ p.product_name }}" required />
+          </td>
+          <td>
+            <select name="customer_id" required>
+              {% for c in customers %}
+              <option value="{{ c.id }}" {% if c.id == p.customer_id %}selected{% endif %}>
+                {{ c.cust_code }} - {{ c.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>{{ p.territory }}</td>
+          <td><input type="date" name="last_visit" value="{{ p.last_visit or '' }}" /></td>
+          <td>
+            <select name="action">
+              <option value=""></option>
+              {% for a in actions %}
+              <option value="{{ a }}" {% if p.action == a %}selected{% endif %}>{{ a }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <select name="status">
+              <option value=""></option>
+              {% for s in statuses %}
+              <option value="{{ s }}" {% if p.status == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input type="text" name="next_action" value="{{ p.next_action or '' }}" /></td>
+          <td><input type="date" name="last_contact" value="{{ p.last_contact or '' }}" /></td>
+          <td><input type="text" name="notes" value="{{ p.notes or '' }}" /></td>
+          <td><button type="submit">Save</button></td>
+        </form>
+      </tr>
+      {% else %}
+      <tr><td colspan="10">No products yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
