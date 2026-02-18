@@ -1,4 +1,5 @@
 import calendar
+import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
@@ -6,6 +7,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request,
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,7 @@ from app.workbook_import import import_planner_workbook
 app = FastAPI(title="Calendar Planner")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger(__name__)
 
 MONTH_SHORT = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 
@@ -122,6 +125,44 @@ def ensure_product_exists(db: Session, product_id: int):
     ).scalar()
     if not exists:
         raise HTTPException(status_code=400, detail="Invalid product_id")
+
+
+def load_customers_page_data(db: Session):
+    territories = db.execute(text("SELECT id, name FROM territories ORDER BY name")).mappings().all()
+    customers = db.execute(
+        text(
+            """
+            SELECT c.id, c.cust_code, c.name, c.trade_name, c.group_name, c.iws_code,
+                   COALESCE(t.name, '') AS territory
+            FROM customers c
+            LEFT JOIN territories t ON t.id = c.territory_id
+            ORDER BY c.cust_code
+            """
+        )
+    ).mappings().all()
+    return {"customers": customers, "territories": territories}
+
+
+def render_customers_page(
+    request: Request,
+    db: Session,
+    *,
+    status_code: int = 200,
+    form_error: str = "",
+    form_values: dict[str, str] | None = None,
+):
+    context = load_customers_page_data(db)
+    return templates.TemplateResponse(
+        "customers.html",
+        {
+            "request": request,
+            "customers": context["customers"],
+            "territories": context["territories"],
+            "form_error": form_error,
+            "form_values": form_values or {},
+        },
+        status_code=status_code,
+    )
 
 
 def json_safe(value):
@@ -252,26 +293,12 @@ def stores_alias():
 
 @app.get("/customers")
 def customers_page(request: Request, db: Session = Depends(get_db)):
-    territories = db.execute(text("SELECT id, name FROM territories ORDER BY name")).mappings().all()
-    customers = db.execute(
-        text(
-            """
-            SELECT c.id, c.cust_code, c.name, c.trade_name, c.group_name, c.iws_code,
-                   COALESCE(t.name, '') AS territory
-            FROM customers c
-            LEFT JOIN territories t ON t.id = c.territory_id
-            ORDER BY c.cust_code
-            """
-        )
-    ).mappings().all()
-    return templates.TemplateResponse(
-        "customers.html",
-        {"request": request, "customers": customers, "territories": territories},
-    )
+    return render_customers_page(request, db)
 
 
 @app.post("/customers")
 def create_customer(
+    request: Request,
     cust_code: str = Form(...),
     name: str = Form(...),
     trade_name: str = Form(""),
@@ -280,20 +307,37 @@ def create_customer(
     iws_code: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    territory_id = None
-    if territory_name.strip():
-        territory = db.execute(
-            text("SELECT id FROM territories WHERE name = :name"), {"name": territory_name.strip()}
-        ).mappings().first()
-        if territory is None:
-            territory_id = db.execute(
-                text("INSERT INTO territories (name) VALUES (:name) RETURNING id"),
-                {"name": territory_name.strip()},
-            ).scalar_one()
-        else:
-            territory_id = territory["id"]
+    form_values = {
+        "cust_code": cust_code.strip(),
+        "name": name.strip(),
+        "trade_name": trade_name.strip(),
+        "territory_name": territory_name.strip(),
+        "group_name": group_name.strip(),
+        "iws_code": iws_code.strip(),
+    }
+    if not form_values["cust_code"] or not form_values["name"]:
+        return render_customers_page(
+            request,
+            db,
+            status_code=400,
+            form_error="Cust Code and Customer Name are required.",
+            form_values=form_values,
+        )
 
     try:
+        territory_id = None
+        if form_values["territory_name"]:
+            territory = db.execute(
+                text("SELECT id FROM territories WHERE name = :name"), {"name": form_values["territory_name"]}
+            ).mappings().first()
+            if territory is None:
+                territory_id = db.execute(
+                    text("INSERT INTO territories (name) VALUES (:name) RETURNING id"),
+                    {"name": form_values["territory_name"]},
+                ).scalar_one()
+            else:
+                territory_id = territory["id"]
+
         db.execute(
             text(
                 """
@@ -303,18 +347,28 @@ def create_customer(
                 """
             ),
             {
-                "cust_code": cust_code.strip(),
-                "name": name.strip(),
-                "trade_name": trade_name.strip(),
+                "cust_code": form_values["cust_code"],
+                "name": form_values["name"],
+                "trade_name": form_values["trade_name"],
                 "territory_id": territory_id,
-                "group_name": group_name.strip(),
-                "iws_code": iws_code.strip(),
+                "group_name": form_values["group_name"],
+                "iws_code": form_values["iws_code"],
             },
         )
         db.commit()
-    except Exception as exc:
+    except (IntegrityError, DataError):
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Could not create customer: {exc}") from exc
+        return render_customers_page(
+            request,
+            db,
+            status_code=400,
+            form_error="Could not create customer. Check for duplicate customer code or invalid values.",
+            form_values=form_values,
+        )
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unexpected database error while creating customer")
+        raise HTTPException(status_code=500, detail="Unexpected server error while creating customer.") from exc
 
     return RedirectResponse(url="/customers", status_code=303)
 
@@ -467,9 +521,13 @@ def create_product(
             },
         )
         db.commit()
-    except Exception as exc:
+    except (IntegrityError, DataError) as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Could not create product: {exc}") from exc
+        raise HTTPException(status_code=400, detail="Could not create product. Check field values.") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unexpected database error while creating product")
+        raise HTTPException(status_code=500, detail="Unexpected server error while creating product.") from exc
 
     return RedirectResponse(url="/products", status_code=303)
 
@@ -524,9 +582,13 @@ def update_product(
             },
         )
         db.commit()
-    except Exception as exc:
+    except (IntegrityError, DataError) as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Could not update product: {exc}") from exc
+        raise HTTPException(status_code=400, detail="Could not update product. Check field values.") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unexpected database error while updating product")
+        raise HTTPException(status_code=500, detail="Unexpected server error while updating product.") from exc
 
     return RedirectResponse(url="/products", status_code=303)
 
@@ -858,9 +920,13 @@ def cvm_month_update(
             )
 
         db.commit()
-    except Exception as exc:
+    except (IntegrityError, DataError) as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Could not save CVM month entry: {exc}") from exc
+        raise HTTPException(status_code=400, detail="Could not save CVM month entry. Check input values.") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unexpected database error while saving CVM month entry")
+        raise HTTPException(status_code=500, detail="Unexpected server error while saving CVM month entry.") from exc
 
     territory_id_value = parse_optional_int(territory_id)
     territory_param = f"&territory_id={territory_id_value}" if territory_id_value else ""
@@ -882,9 +948,13 @@ def cvm_notes_update(
             {"customer_id": customer_id, "notes": notes.strip()},
         )
         db.commit()
-    except Exception as exc:
+    except (IntegrityError, DataError) as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Could not save CVM notes: {exc}") from exc
+        raise HTTPException(status_code=400, detail="Could not save CVM notes. Check input values.") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unexpected database error while saving CVM notes")
+        raise HTTPException(status_code=500, detail="Unexpected server error while saving CVM notes.") from exc
 
     territory_id_value = parse_optional_int(territory_id)
     territory_param = f"&territory_id={territory_id_value}" if territory_id_value else ""
@@ -1023,14 +1093,32 @@ async def import_workbook(
             },
             status_code=400,
         )
-    except Exception as exc:
+    except (ValueError, TypeError) as exc:
         db.rollback()
         return templates.TemplateResponse(
             "import.html",
             {
                 "request": request,
                 "result": None,
-                "error": f"Unexpected import error: {exc}",
+                "error": f"Import failed: {exc}",
+                "uploaded_name": workbook_file.filename or "",
+                "year_override": year_override,
+                "import_mode": mode,
+                "upsert_policy": upsert_policy,
+                "validation_mode": validation_mode,
+                "duplicate_policy": duplicate_policy,
+            },
+            status_code=400,
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Unexpected database error during workbook import")
+        return templates.TemplateResponse(
+            "import.html",
+            {
+                "request": request,
+                "result": None,
+                "error": "Unexpected import database error.",
                 "uploaded_name": workbook_file.filename or "",
                 "year_override": year_override,
                 "import_mode": mode,

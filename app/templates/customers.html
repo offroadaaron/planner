@@ -2,13 +2,17 @@
 {% block content %}
 <section class="card">
   <h1>Customers</h1>
+  {% set values = form_values if form_values is defined else {} %}
+  {% if form_error %}
+  <p class="form-error">{{ form_error }}</p>
+  {% endif %}
   <form method="post" action="/customers" class="grid">
-    <input name="cust_code" placeholder="Cust Code" required />
-    <input name="name" placeholder="Customer Name" required />
-    <input name="trade_name" placeholder="Trade Name" />
-    <input name="territory_name" placeholder="Territory (e.g. NSW (North))" />
-    <input name="group_name" placeholder="Group" />
-    <input name="iws_code" placeholder="IWS Code" />
+    <input name="cust_code" placeholder="Cust Code" value="{{ values.get('cust_code', '') }}" required />
+    <input name="name" placeholder="Customer Name" value="{{ values.get('name', '') }}" required />
+    <input name="trade_name" placeholder="Trade Name" value="{{ values.get('trade_name', '') }}" />
+    <input name="territory_name" placeholder="Territory (e.g. NSW (North))" value="{{ values.get('territory_name', '') }}" />
+    <input name="group_name" placeholder="Group" value="{{ values.get('group_name', '') }}" />
+    <input name="iws_code" placeholder="IWS Code" value="{{ values.get('iws_code', '') }}" />
     <button type="submit">Add Customer</button>
   </form>
 </section>

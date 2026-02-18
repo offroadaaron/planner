@@ -269,6 +269,184 @@ def test_update_product_rejects_unknown_product(client_and_engine):
     assert response.json()["detail"] == "Invalid product_id"
 
 
+def test_create_product_rejects_invalid_last_contact(client_and_engine):
+    client, engine = client_and_engine
+    seed_customer(engine, 1, "C1", "Customer 1")
+
+    response = client.post(
+        "/products",
+        data={
+            "customer_id": "1",
+            "product_name": "Test Product",
+            "last_visit": "",
+            "action": "",
+            "status": "",
+            "next_action": "",
+            "last_contact": "not-a-date",
+            "notes": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Invalid last_contact" in response.json()["detail"]
+
+
+def test_create_product_success_persists(client_and_engine):
+    client, engine = client_and_engine
+    seed_customer(engine, 1, "C1", "Customer 1")
+
+    response = client.post(
+        "/products",
+        data={
+            "customer_id": "1",
+            "product_name": "Test Product",
+            "last_visit": "2026-02-01",
+            "action": "Call",
+            "status": "Open",
+            "next_action": "Follow Up",
+            "last_contact": "2026-02-02",
+            "notes": "Note one",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/products"
+
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT customer_id, product_name, last_visit, action, status, next_action, last_contact, notes
+                FROM products
+                WHERE customer_id = 1 AND product_name = 'Test Product'
+                """
+            )
+        ).mappings().first()
+
+    assert row is not None
+    assert row["customer_id"] == 1
+    assert row["action"] == "Call"
+    assert row["status"] == "Open"
+    assert row["next_action"] == "Follow Up"
+    assert str(row["last_visit"]).startswith("2026-02-01")
+    assert str(row["last_contact"]).startswith("2026-02-02")
+    assert row["notes"] == "Note one"
+
+
+def test_update_product_rejects_invalid_last_contact(client_and_engine):
+    client, engine = client_and_engine
+    seed_customer(engine, 1, "C1", "Customer 1")
+    seed_product(engine, 1, 1, "Existing Product")
+
+    response = client.post(
+        "/products/1",
+        data={
+            "customer_id": "1",
+            "product_name": "Existing Product",
+            "last_visit": "",
+            "action": "",
+            "status": "",
+            "next_action": "",
+            "last_contact": "bad-contact-date",
+            "notes": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Invalid last_contact" in response.json()["detail"]
+
+
+def test_update_product_success_persists(client_and_engine):
+    client, engine = client_and_engine
+    seed_customer(engine, 1, "C1", "Customer 1")
+    seed_product(engine, 1, 1, "Existing Product")
+
+    response = client.post(
+        "/products/1",
+        data={
+            "customer_id": "1",
+            "product_name": "Updated Product",
+            "last_visit": "2026-03-01",
+            "action": "Visit",
+            "status": "Closed",
+            "next_action": "Review",
+            "last_contact": "2026-03-03",
+            "notes": "Updated note",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/products"
+
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT product_name, last_visit, action, status, next_action, last_contact, notes
+                FROM products
+                WHERE id = 1
+                """
+            )
+        ).mappings().first()
+
+    assert row is not None
+    assert row["product_name"] == "Updated Product"
+    assert row["action"] == "Visit"
+    assert row["status"] == "Closed"
+    assert row["next_action"] == "Review"
+    assert str(row["last_visit"]).startswith("2026-03-01")
+    assert str(row["last_contact"]).startswith("2026-03-03")
+    assert row["notes"] == "Updated note"
+
+
+def test_create_customer_duplicate_renders_form_error(client_and_engine):
+    client, engine = client_and_engine
+    seed_customer(engine, 1, "C1", "Customer One")
+
+    response = client.post(
+        "/customers",
+        data={
+            "cust_code": "C1",
+            "name": "Customer One Duplicate",
+            "trade_name": "Dup Trade",
+            "territory_name": "NSW",
+            "group_name": "Group A",
+            "iws_code": "IWS100",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Could not create customer. Check for duplicate customer code or invalid values." in response.text
+    assert 'name="cust_code"' in response.text
+    assert 'value="C1"' in response.text
+    assert 'value="Customer One Duplicate"' in response.text
+
+
+def test_create_customer_blank_required_fields_renders_form_error(client_and_engine):
+    client, _ = client_and_engine
+
+    response = client.post(
+        "/customers",
+        data={
+            "cust_code": "   ",
+            "name": "   ",
+            "trade_name": "",
+            "territory_name": "",
+            "group_name": "",
+            "iws_code": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "Cust Code and Customer Name are required." in response.text
+
+
 def test_cvm_month_update_rejects_unknown_customer(client_and_engine):
     client, _ = client_and_engine
 
@@ -602,7 +780,7 @@ def _build_duplicate_customer_workbook_bytes() -> bytes:
     get_data = wb["Get Data -Sample"]
     get_data.append(["NSW (North)", "IWS", "WORKLOCKER", "IWS001", "C100", "Alpha Store Duplicate", "", ""])
 
-    cvm = wb["CVM"]
+    cvm = wb["CVM"] if "CVM" in wb.sheetnames else wb[" CVM"]
     cvm.append(
         [
             1,
