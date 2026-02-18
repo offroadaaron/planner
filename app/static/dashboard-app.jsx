@@ -263,7 +263,7 @@ function NavLinks({ mobile = false, onNavigate }) {
   });
 }
 
-function SideNavSheet({ open, onClose }) {
+function MobileNavSheet({ open, onClose }) {
   useEffect(() => {
     if (!open) return undefined;
 
@@ -354,7 +354,7 @@ function AppHeader() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-200/90 bg-white/85 backdrop-blur-md supports-[backdrop-filter]:bg-white/72">
-        <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-7xl items-center gap-2 px-4 py-3 sm:px-6 lg:px-8">
           <a
             href="/"
             className={cx(
@@ -367,7 +367,7 @@ function AppHeader() {
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600 text-white">
               {LayoutDashboard ? <LayoutDashboard size={16} /> : "P"}
             </span>
-            <span className="hidden sm:inline">Planner Dashboard</span>
+            <span className="hidden sm:inline">Planner</span>
           </a>
 
           <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary navigation">
@@ -387,12 +387,24 @@ function AppHeader() {
             {Menu ? <Menu size={18} /> : "Menu"}
           </button>
 
-          <div className="ml-auto hidden items-center gap-2 sm:flex">
+          <div className="ml-auto flex items-center gap-2">
+            <label className="hidden xl:block">
+              <span className="sr-only">Global search</span>
+              <input
+                type="search"
+                placeholder="Search"
+                className={cx(
+                  touchTarget(),
+                  "w-44 rounded-full border border-slate-300 bg-white px-3 text-sm text-slate-700",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                )}
+              />
+            </label>
             <a
               href="/import"
               className={cx(
                 touchTarget(),
-                "inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700",
+                "hidden items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 md:inline-flex",
                 "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
               )}
             >
@@ -410,13 +422,49 @@ function AppHeader() {
               {Plus ? <Plus size={16} /> : null}
               New Visit
             </a>
+            <button
+              type="button"
+              aria-label="User menu placeholder"
+              className={cx(
+                touchTarget(),
+                "hidden w-11 items-center justify-center rounded-full border border-slate-300 bg-white text-sm font-semibold text-slate-700 sm:inline-flex",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+              )}
+            >
+              A
+            </button>
           </div>
         </div>
       </header>
 
-      <SideNavSheet open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <MobileNavSheet open={menuOpen} onClose={() => setMenuOpen(false)} />
     </>
   );
+}
+
+function AppShell({ children }) {
+  return (
+    <div className="min-h-screen bg-[var(--bg)] text-slate-900 antialiased">
+      <AppHeader />
+      <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+    </div>
+  );
+}
+
+function PageHeader({ title, helper, right }) {
+  return (
+    <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 className="text-[clamp(1.75rem,1.5rem+1vw,2rem)] font-semibold leading-tight text-slate-900">{title}</h1>
+        {helper ? <p className="mt-1 text-sm text-slate-500">{helper}</p> : null}
+      </div>
+      {right ? <div>{right}</div> : null}
+    </div>
+  );
+}
+
+function CardSection({ children, className = "" }) {
+  return <section className={cx("rounded-2xl border border-slate-200 bg-white p-5 shadow-sm", className)}>{children}</section>;
 }
 
 function SectionHeader({ title, helper, right }) {
@@ -1010,7 +1058,7 @@ function VisitsTrendChart({ series, loading }) {
   }, [series]);
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <CardSection>
       <SectionHeader
         title="Visits Over 12 Months"
         helper="Planned vs completed from CVM entries"
@@ -1069,7 +1117,7 @@ function VisitsTrendChart({ series, loading }) {
           </svg>
         </div>
       )}
-    </section>
+    </CardSection>
   );
 }
 
@@ -1109,7 +1157,7 @@ function UpcomingEventsTable({ events, loading, onToast }) {
 
   return (
     <>
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <CardSection>
         <SectionHeader
           title="Upcoming Events"
           helper="Search and filter upcoming planned/completed visits"
@@ -1215,7 +1263,7 @@ function UpcomingEventsTable({ events, loading, onToast }) {
 
         <div className="overflow-auto rounded-xl border border-slate-200" style={{ WebkitOverflowScrolling: "touch" }}>
           <table className="min-w-full divide-y divide-slate-200" aria-label="Upcoming events table">
-            <thead className="bg-slate-50">
+            <thead className="sticky top-0 z-[1] bg-slate-50">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Date</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Customer</th>
@@ -1285,7 +1333,7 @@ function UpcomingEventsTable({ events, loading, onToast }) {
             </tbody>
           </table>
         </div>
-      </section>
+      </CardSection>
 
       <ExportReportDialog
         open={exportOpen}
@@ -1338,47 +1386,43 @@ function DashboardApp({ data }) {
   ];
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-slate-900 antialiased">
-      <AppHeader />
+    <AppShell>
+      <CardSection>
+        <PageHeader
+          title="Planner Dashboard"
+          helper="Track planning progress, upcoming visits, and activity at a glance."
+          right={
+            <span className="inline-flex items-center gap-2 text-sm text-slate-500">
+              {Clock3 ? <Clock3 size={16} /> : null}
+              {formatDate(data.today)}
+            </span>
+          }
+        />
 
-      <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <SectionHeader
-            title="Planner Dashboard"
-            helper="Track planning progress, upcoming visits, and activity at a glance."
-            right={
-              <span className="inline-flex items-center gap-2 text-sm text-slate-500">
-                {Clock3 ? <Clock3 size={16} /> : null}
-                {formatDate(data.today)}
-              </span>
-            }
-          />
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {loading
-              ? Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <Skeleton className="h-4 w-24" />
-                    <Skeleton className="mt-3 h-9 w-24" />
-                    <Skeleton className="mt-4 h-4 w-32" />
-                  </div>
-                ))
-              : statCards.map((card) => <StatCard key={card.label} {...card} />)}
-          </div>
-        </section>
-
-        <div className="grid gap-6 md:grid-cols-12">
-          <div className="md:col-span-12 lg:col-span-5">
-            <VisitsTrendChart series={visitsByMonth} loading={loading} />
-          </div>
-          <div className="md:col-span-12 lg:col-span-7">
-            <UpcomingEventsTable events={upcoming} loading={loading} onToast={push} />
-          </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {loading
+            ? Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="mt-3 h-9 w-24" />
+                  <Skeleton className="mt-4 h-4 w-32" />
+                </div>
+              ))
+            : statCards.map((card) => <StatCard key={card.label} {...card} />)}
         </div>
-      </main>
+      </CardSection>
+
+      <div className="grid gap-6 md:grid-cols-12">
+        <div className="md:col-span-12 lg:col-span-5">
+          <VisitsTrendChart series={visitsByMonth} loading={loading} />
+        </div>
+        <div className="md:col-span-12 lg:col-span-7">
+          <UpcomingEventsTable events={upcoming} loading={loading} onToast={push} />
+        </div>
+      </div>
 
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
-    </div>
+    </AppShell>
   );
 }
 

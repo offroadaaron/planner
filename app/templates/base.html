@@ -8,68 +8,76 @@
     <link rel="stylesheet" href="/static/styles.css" />
     {% block head_extra %}{% endblock %}
   </head>
-  <body>
-    <header class="app-header">
-      <div class="app-header-inner">
-        <a href="/" class="brand-link" aria-label="Go to dashboard">
-          <span class="brand-mark">P</span>
-          <span class="brand-text">Planner Dashboard</span>
-        </a>
+  <body class="app-body">
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="app-header-inner">
+          <a href="/" class="brand-link" aria-label="Go to dashboard">
+            <span class="brand-mark">P</span>
+            <span class="brand-text">Planner</span>
+          </a>
 
-        <nav class="desktop-nav" aria-label="Primary navigation">
-          <a href="/" class="nav-link" data-nav-link>Dashboard</a>
-          <a href="/calendar" class="nav-link" data-nav-link>12-Month Planner</a>
-          <a href="/cvm" class="nav-link" data-nav-link>CVM View</a>
-          <a href="/customers" class="nav-link" data-nav-link>Customers</a>
-          <a href="/products" class="nav-link" data-nav-link>Products</a>
-          <a href="/events" class="nav-link" data-nav-link>Visit Events</a>
-          <a href="/import" class="nav-link" data-nav-link>Import Workbook</a>
-        </nav>
+          <nav class="desktop-nav" aria-label="Primary navigation">
+            <a href="/" class="nav-link" data-nav-link>Dashboard</a>
+            <a href="/calendar" class="nav-link" data-nav-link>12-Month Planner</a>
+            <a href="/cvm" class="nav-link" data-nav-link>CVM View</a>
+            <a href="/customers" class="nav-link" data-nav-link>Customers</a>
+            <a href="/products" class="nav-link" data-nav-link>Products</a>
+            <a href="/events" class="nav-link" data-nav-link>Visit Events</a>
+            <a href="/import" class="nav-link" data-nav-link>Import Workbook</a>
+          </nav>
 
-        <button
-          id="menu-button"
-          type="button"
-          class="menu-button"
-          aria-label="Open menu"
-          aria-controls="side-sheet"
-          aria-expanded="false"
-        >
-          Menu
-        </button>
+          <button
+            id="menu-button"
+            type="button"
+            class="menu-button"
+            aria-label="Open menu"
+            aria-controls="side-sheet"
+            aria-expanded="false"
+          >
+            Menu
+          </button>
 
-        <div class="header-actions">
-          <a href="/import" class="button-secondary action-button">Import</a>
-          <a href="/cvm" class="button-primary action-button">New Visit</a>
+          <div class="header-actions">
+            <label class="global-search-wrap" aria-label="Global search placeholder">
+              <span class="sr-only">Global search</span>
+              <input type="search" class="global-search" placeholder="Search" />
+            </label>
+            <a href="/import" class="button-secondary action-button header-import">Import</a>
+            <a href="/cvm" class="button-primary action-button header-new-visit">New Visit</a>
+            <button type="button" class="user-chip" aria-label="User menu placeholder">A</button>
+          </div>
         </div>
+      </header>
+
+      <div id="side-sheet" class="side-sheet" aria-hidden="true">
+        <button type="button" class="sheet-overlay" aria-label="Close menu"></button>
+        <aside class="sheet-panel" role="dialog" aria-modal="true" aria-label="Navigation menu">
+          <div class="sheet-head">
+            <p>Navigation</p>
+            <button id="sheet-close" type="button" class="sheet-close" aria-label="Close menu">Close</button>
+          </div>
+          <nav class="sheet-nav" aria-label="Mobile navigation">
+            <a href="/" class="nav-link" data-nav-link>Dashboard</a>
+            <a href="/calendar" class="nav-link" data-nav-link>12-Month Planner</a>
+            <a href="/cvm" class="nav-link" data-nav-link>CVM View</a>
+            <a href="/customers" class="nav-link" data-nav-link>Customers</a>
+            <a href="/products" class="nav-link" data-nav-link>Products</a>
+            <a href="/events" class="nav-link" data-nav-link>Visit Events</a>
+            <a href="/import" class="nav-link" data-nav-link>Import Workbook</a>
+          </nav>
+          <div class="sheet-actions">
+            <a href="/import" class="button-secondary action-button">Import</a>
+            <a href="/cvm" class="button-primary action-button">New Visit</a>
+          </div>
+        </aside>
       </div>
-    </header>
 
-    <div id="side-sheet" class="side-sheet" aria-hidden="true">
-      <button type="button" class="sheet-overlay" aria-label="Close menu"></button>
-      <aside class="sheet-panel" role="dialog" aria-modal="true" aria-label="Navigation menu">
-        <div class="sheet-head">
-          <p>Navigation</p>
-          <button id="sheet-close" type="button" class="sheet-close" aria-label="Close menu">Close</button>
-        </div>
-        <nav class="sheet-nav" aria-label="Mobile navigation">
-          <a href="/" class="nav-link" data-nav-link>Dashboard</a>
-          <a href="/calendar" class="nav-link" data-nav-link>12-Month Planner</a>
-          <a href="/cvm" class="nav-link" data-nav-link>CVM View</a>
-          <a href="/customers" class="nav-link" data-nav-link>Customers</a>
-          <a href="/products" class="nav-link" data-nav-link>Products</a>
-          <a href="/events" class="nav-link" data-nav-link>Visit Events</a>
-          <a href="/import" class="nav-link" data-nav-link>Import Workbook</a>
-        </nav>
-        <div class="sheet-actions">
-          <a href="/import" class="button-secondary action-button">Import</a>
-          <a href="/cvm" class="button-primary action-button">New Visit</a>
-        </div>
-      </aside>
+      <main class="app-main">
+        {% block page_header %}{% endblock %}
+        {% block content %}{% endblock %}
+      </main>
     </div>
-
-    <main class="app-main">
-      {% block content %}{% endblock %}
-    </main>
 
     <script>
       (() => {

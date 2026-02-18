@@ -626,6 +626,7 @@ def calendar_page(
     week_start_day: str = Query(default=""),
     db: Session = Depends(get_db),
 ):
+    calendar_today = date.today()
     setting_row = db.execute(
         text("SELECT calendar_year, week_start_day FROM calendar_settings WHERE id = 1")
     ).mappings().first()
@@ -729,6 +730,7 @@ def calendar_page(
             "prev_year": prev_year,
             "next_month": next_month,
             "next_year": next_year,
+            "today": calendar_today,
         },
     )
 

@@ -1,63 +1,105 @@
 {% extends "base.html" %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+{% endblock %}
+
+{% block page_header %}
+<section class="card page-header">
+  <div>
+    <h1 class="page-header-title">CVM {{ year }}</h1>
+    <p class="page-header-subtitle">Edit month dates, mark completion manually, and track notes per customer.</p>
+  </div>
+  <div class="page-header-actions">
+    <a class="button-secondary" href="/calendar?year={{ year }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}">Open Planner</a>
+  </div>
+</section>
+{% endblock %}
+
 {% block content %}
-<section class="card">
-  <h1>CVM {{ year }}</h1>
-  <form method="get" action="/cvm" class="grid">
-    <input type="number" min="2000" max="2100" name="year" value="{{ year }}" />
-    <select name="territory_id">
-      <option value="">All Territories</option>
-      {% for t in territories %}
-      <option value="{{ t.id }}" {% if territory_id == t.id %}selected{% endif %}>{{ t.name }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit">Load CVM</button>
-  </form>
+<section class="card cvm-page">
+  <div class="cvm-header-bar">
+    <form method="get" action="/cvm" class="cvm-control-row" autocomplete="off">
+      <div class="cvm-control">
+        <label for="cvm-year">Year</label>
+        <input id="cvm-year" type="number" min="2000" max="2100" name="year" value="{{ year }}" />
+      </div>
+
+      <div class="cvm-control">
+        <label for="cvm-territory">Territory</label>
+        <select id="cvm-territory" name="territory_id">
+          <option value="">All Territories</option>
+          {% for t in territories %}
+          <option value="{{ t.id }}" {% if territory_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit">Load CVM</button>
+
+      <div class="cvm-export-wrap" aria-label="Export current CVM table">
+        <button id="cvm-export-csv" type="button" class="button-secondary">Export CSV</button>
+        <button id="cvm-export-xlsx" type="button" class="button-secondary">Export XLSX</button>
+      </div>
+    </form>
+  </div>
 </section>
 
-<section class="card table-scroll">
-  <table class="matrix-table">
-    <thead>
-      <tr>
-        <th>Door Count</th>
-        <th>Territory</th>
-        <th>Cust Code</th>
-        <th>SORT</th>
-        <th>Customer Name</th>
-        <th>Trade Name</th>
-        <th>Notes/Comments</th>
-        <th>Last Completed</th>
-        <th>Total Planned</th>
-        <th>Total Completed</th>
-        {% for m in months %}
+<section class="card">
+  <div id="cvm-grid-wrap" class="data-grid-wrap">
+    <table id="cvm-table" class="cvm-table" aria-label="CVM editable table">
+      <thead>
+        <tr>
+          <th class="sticky-col-1">Cust Code</th>
+          <th class="sticky-col-2">Customer Name</th>
+          <th>Row Status</th>
+          <th>Door Count</th>
+          <th>Territory</th>
+          <th>SORT</th>
+          <th>Trade Name</th>
+          <th>Notes / Comments</th>
+          <th>Last Completed</th>
+          <th>Total Planned</th>
+          <th>Total Completed</th>
+          {% for m in months %}
           <th>{{ m }} Date / Done</th>
-        {% endfor %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-      <tr>
-        <td>{{ r.door_count }}</td>
-        <td>{{ r.territory }}</td>
-        <td>{{ r.cust_code }}</td>
-        <td>{{ r.sort_bucket }}</td>
-        <td>{{ r.customer_name }}</td>
-        <td>{{ r.trade_name }}</td>
-        <td>
-          <form method="post" action="/cvm/notes-update" class="cvm-notes-form" autocomplete="off">
-            <input type="hidden" name="customer_id" value="{{ r.id }}" />
-            <input type="hidden" name="year" value="{{ year }}" />
-            <input type="hidden" name="territory_id" value="{{ territory_id or '' }}" />
-            <textarea name="notes" rows="3" placeholder="Notes/Comments">{{ r.cvm_notes or '' }}</textarea>
-            <button type="submit">Save Notes</button>
-          </form>
-        </td>
-        <td>{{ r.last_completed or '' }}</td>
-        <td>{{ r.planned_total }}</td>
-        <td>{{ r.completed_total }}</td>
-        {% for i in range(1, 13) %}
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr
+          data-row-id="{{ r.id }}"
+          data-cust-code="{{ r.cust_code }}"
+          data-customer-name="{{ r.customer_name }}"
+          data-territory="{{ r.territory }}"
+          data-trade-name="{{ r.trade_name }}"
+          data-sort="{{ r.sort_bucket }}"
+        >
+          <td class="sticky-col-1">{{ r.cust_code }}</td>
+          <td class="sticky-col-2">{{ r.customer_name }}</td>
+          <td><span class="row-status" data-row-status>Saved</span></td>
+          <td>{{ r.door_count }}</td>
+          <td>{{ r.territory }}</td>
+          <td>{{ r.sort_bucket }}</td>
+          <td>{{ r.trade_name }}</td>
+          <td>
+            <form method="post" action="/cvm/notes-update" class="cvm-note-wrap cvm-autosave-form" data-row-id="{{ r.id }}" autocomplete="off">
+              <input type="hidden" name="customer_id" value="{{ r.id }}" />
+              <input type="hidden" name="year" value="{{ year }}" />
+              <input type="hidden" name="territory_id" value="{{ territory_id or '' }}" />
+              <textarea name="notes" rows="3" placeholder="Notes/Comments">{{ r.cvm_notes or '' }}</textarea>
+              <button type="submit" class="cvm-inline-save button-secondary">Save</button>
+            </form>
+          </td>
+          <td>{{ r.last_completed or '' }}</td>
+          <td>{{ r.planned_total }}</td>
+          <td>{{ r.completed_total }}</td>
+
+          {% for i in range(1, 13) %}
           {% set cell = r.month_data.get(i) %}
           <td>
-            <form method="post" action="/cvm/month-update" class="cvm-month-form" autocomplete="off">
+            <form method="post" action="/cvm/month-update" class="cvm-month-wrap cvm-autosave-form" data-row-id="{{ r.id }}" autocomplete="off">
               <input type="hidden" name="customer_id" value="{{ r.id }}" />
               <input type="hidden" name="year" value="{{ year }}" />
               <input type="hidden" name="month" value="{{ i }}" />
@@ -67,15 +109,220 @@
                 <input type="checkbox" name="completed_manual" value="1" {% if cell and cell.completed_manual %}checked{% endif %} />
                 Done
               </label>
-              <button type="submit">Save</button>
+              <button type="submit" class="cvm-inline-save button-secondary">Save</button>
             </form>
           </td>
+          {% endfor %}
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="23" class="cvm-empty">No customer rows available for the selected filters.</td>
+        </tr>
         {% endfor %}
-      </tr>
-      {% else %}
-      <tr><td colspan="22">No customer rows available yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </tbody>
+    </table>
+  </div>
 </section>
+
+<div id="cvm-toast-stack" class="cvm-toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+<script>
+  (() => {
+    const wrap = document.getElementById("cvm-grid-wrap");
+    const forms = Array.from(document.querySelectorAll(".cvm-autosave-form"));
+    const exportCsvButton = document.getElementById("cvm-export-csv");
+    const exportXlsxButton = document.getElementById("cvm-export-xlsx");
+    const toastStack = document.getElementById("cvm-toast-stack");
+
+    const pushToast = (message, type = "success") => {
+      if (!toastStack || !message) return;
+      const toast = document.createElement("div");
+      toast.className = `cvm-toast${type === "error" ? " is-error" : ""}`;
+      toast.setAttribute("role", "status");
+      toast.textContent = message;
+      toastStack.appendChild(toast);
+      window.setTimeout(() => {
+        toast.style.opacity = "0";
+      }, 3000);
+      window.setTimeout(() => {
+        toast.remove();
+      }, 3400);
+    };
+
+    if (wrap) {
+      const refreshScrollShadows = () => {
+        const left = wrap.scrollLeft > 2;
+        const right = wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft > 2;
+        wrap.classList.toggle("is-scroll-left", left);
+        wrap.classList.toggle("is-scroll-right", right);
+      };
+
+      refreshScrollShadows();
+      wrap.addEventListener("scroll", refreshScrollShadows, { passive: true });
+      window.addEventListener("resize", refreshScrollShadows);
+    }
+
+    const timers = new Map();
+
+    const setRowStatus = (rowId, state, label) => {
+      const status = document.querySelector(`[data-row-id="${rowId}"] [data-row-status]`);
+      if (!status) return;
+      status.classList.remove("is-dirty", "is-saving", "is-error");
+      if (state) {
+        status.classList.add(state);
+      }
+      status.textContent = label;
+    };
+
+    const submitForm = async (form, showSuccessToast = false) => {
+      const rowId = form.getAttribute("data-row-id");
+      if (!rowId) return;
+
+      setRowStatus(rowId, "is-saving", "Saving...");
+
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Save failed (${response.status})`);
+        }
+
+        setRowStatus(rowId, "", "Saved");
+        if (showSuccessToast) {
+          pushToast("Row changes saved.");
+        }
+      } catch (_) {
+        setRowStatus(rowId, "is-error", "Error");
+        pushToast("Save failed. Please try again.", "error");
+      }
+    };
+
+    forms.forEach((form) => {
+      const rowId = form.getAttribute("data-row-id");
+      if (!rowId) return;
+
+      const schedule = () => {
+        setRowStatus(rowId, "is-dirty", "Unsaved");
+        const existingTimer = timers.get(form);
+        if (existingTimer) {
+          window.clearTimeout(existingTimer);
+        }
+
+        const timer = window.setTimeout(() => {
+          submitForm(form, false);
+          timers.delete(form);
+        }, 900);
+
+        timers.set(form, timer);
+      };
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const existingTimer = timers.get(form);
+        if (existingTimer) {
+          window.clearTimeout(existingTimer);
+          timers.delete(form);
+        }
+        submitForm(form, true);
+      });
+
+      form.querySelectorAll("input, textarea, select").forEach((field) => {
+        if (field.type === "hidden") return;
+        const trigger = field.type === "checkbox" || field.tagName === "SELECT" || field.type === "date" ? "change" : "input";
+        field.addEventListener(trigger, schedule);
+      });
+    });
+
+    const monthNames = {{ months | tojson }};
+
+    const collectCvmRows = () => {
+      const rows = [];
+      document.querySelectorAll("#cvm-table tbody tr[data-row-id]").forEach((row) => {
+        const item = {
+          cust_code: row.getAttribute("data-cust-code") || "",
+          customer_name: row.getAttribute("data-customer-name") || "",
+          territory: row.getAttribute("data-territory") || "",
+          sort: row.getAttribute("data-sort") || "",
+          trade_name: row.getAttribute("data-trade-name") || "",
+          notes: row.querySelector("textarea[name='notes']")?.value || "",
+          total_planned: row.children[9]?.textContent.trim() || "",
+          total_completed: row.children[10]?.textContent.trim() || "",
+        };
+
+        row.querySelectorAll("form.cvm-month-wrap").forEach((form) => {
+          const monthNumber = Number(form.querySelector("input[name='month']")?.value || 0);
+          if (!monthNumber) return;
+          const monthLabel = monthNames[monthNumber - 1] || `M${monthNumber}`;
+          const dateValue = form.querySelector("input[name='planned_date']")?.value || "";
+          const doneValue = form.querySelector("input[name='completed_manual']")?.checked ? "Yes" : "No";
+          item[`${monthLabel}_date`] = dateValue;
+          item[`${monthLabel}_done`] = doneValue;
+        });
+
+        rows.push(item);
+      });
+      return rows;
+    };
+
+    const downloadCsv = (rows) => {
+      if (!rows.length) {
+        pushToast("No rows available to export.", "error");
+        return;
+      }
+      const headers = Object.keys(rows[0]);
+      const escapeCell = (value) => {
+        const str = String(value ?? "");
+        if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+          return '"' + str.replaceAll('"', '""') + '"';
+        }
+        return str;
+      };
+      const csv = [headers.join(",")]
+        .concat(rows.map((row) => headers.map((header) => escapeCell(row[header])).join(",")))
+        .join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `cvm-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      pushToast(`Exported ${rows.length} rows to CSV.`);
+    };
+
+    const downloadXlsx = (rows) => {
+      if (!rows.length) {
+        pushToast("No rows available to export.", "error");
+        return;
+      }
+      if (!window.XLSX) {
+        pushToast("XLSX export is unavailable right now.", "error");
+        return;
+      }
+      const worksheet = window.XLSX.utils.json_to_sheet(rows);
+      const workbook = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(workbook, worksheet, "CVM");
+      window.XLSX.writeFile(workbook, `cvm-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      pushToast(`Exported ${rows.length} rows to XLSX.`);
+    };
+
+    if (exportCsvButton) {
+      exportCsvButton.addEventListener("click", () => {
+        downloadCsv(collectCvmRows());
+      });
+    }
+
+    if (exportXlsxButton) {
+      exportXlsxButton.addEventListener("click", () => {
+        downloadXlsx(collectCvmRows());
+      });
+    }
+  })();
+</script>
 {% endblock %}

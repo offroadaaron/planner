@@ -1,67 +1,260 @@
 {% extends "base.html" %}
+
+{% block page_header %}
+<section class="card page-header">
+  <div>
+    <h1 class="page-header-title">12-Month Planner</h1>
+    <p class="page-header-subtitle">Review planned and completed visits by month, territory, and week start.</p>
+  </div>
+  <div class="page-header-actions">
+    <a class="button-secondary" href="/cvm">Open CVM</a>
+    <a class="button-primary" href="/import">Import Workbook</a>
+  </div>
+</section>
+{% endblock %}
+
 {% block content %}
-<section class="card">
-  <h1>{{ month_name }} {{ year }} Planner</h1>
-  <form method="get" action="/calendar" class="grid">
-    <input type="number" min="1" max="12" name="month" value="{{ month }}" />
-    <input type="number" min="2000" max="2100" name="year" value="{{ year }}" />
-    <select name="week_start_day">
-      <option value="monday" {% if week_start_day == 'monday' %}selected{% endif %}>Week starts Monday</option>
-      <option value="sunday" {% if week_start_day == 'sunday' %}selected{% endif %}>Week starts Sunday</option>
-    </select>
-    <select name="territory_id">
-      <option value="">All Territories</option>
-      {% for t in territories %}
-      <option value="{{ t.id }}" {% if territory_id == t.id %}selected{% endif %}>{{ t.name }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit">Load Planner</button>
+<section class="card planner-page">
+  <form method="get" action="/calendar" class="planner-toolbar" autocomplete="off">
+    <div class="planner-headline">
+      <div class="planner-month-switch" aria-label="Month navigation">
+        <a
+          class="icon-button"
+          href="/calendar?month={{ prev_month }}&year={{ prev_year }}&week_start_day={{ week_start_day }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}"
+          aria-label="Previous month"
+        >
+          <span aria-hidden="true">&#x2039;</span>
+        </a>
+        <span class="planner-month-title">{{ month_name }} {{ year }}</span>
+        <a
+          class="icon-button"
+          href="/calendar?month={{ next_month }}&year={{ next_year }}&week_start_day={{ week_start_day }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}"
+          aria-label="Next month"
+        >
+          <span aria-hidden="true">&#x203A;</span>
+        </a>
+      </div>
+      <p class="subtle">Week starts {{ week_start_day|title }}.</p>
+    </div>
+
+    <div class="planner-controls">
+      <div class="planner-control">
+        <label for="planner-month">Month</label>
+        <select id="planner-month" name="month">
+          {% for m in range(1, 13) %}
+          <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="planner-control">
+        <label for="planner-year">Year</label>
+        <input id="planner-year" type="number" min="2000" max="2100" name="year" value="{{ year }}" />
+      </div>
+
+      <div class="planner-control">
+        <label for="planner-week-start">Week Start</label>
+        <select id="planner-week-start" name="week_start_day">
+          <option value="monday" {% if week_start_day == 'monday' %}selected{% endif %}>Monday</option>
+          <option value="sunday" {% if week_start_day == 'sunday' %}selected{% endif %}>Sunday</option>
+        </select>
+      </div>
+
+      <div class="planner-control">
+        <label for="planner-territory">Territory</label>
+        <select id="planner-territory" name="territory_id">
+          <option value="">All Territories</option>
+          {% for t in territories %}
+          <option value="{{ t.id }}" {% if territory_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="planner-load-wrap">
+        <button type="submit">Load Planner</button>
+      </div>
+    </div>
   </form>
 
-  <div class="month-nav">
-    <a class="button-secondary" href="/calendar?month={{ prev_month }}&year={{ prev_year }}&week_start_day={{ week_start_day }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}">&lt; {{ prev_month }}/{{ prev_year }}</a>
-    <a class="button-secondary" href="/calendar?month={{ next_month }}&year={{ next_year }}&week_start_day={{ week_start_day }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}">{{ next_month }}/{{ next_year }} &gt;</a>
+  <div class="planner-stats" aria-label="Month summary">
+    <article class="stat-chip">
+      <div>
+        <strong>{{ planned_total }}</strong>
+        <div>Planned Visits</div>
+      </div>
+      <span class="badge planned">Month Total</span>
+    </article>
+    <article class="stat-chip">
+      <div>
+        <strong>{{ completed_total }}</strong>
+        <div>Completed Visits</div>
+      </div>
+      <span class="badge completed">Month Total</span>
+    </article>
   </div>
-
-  <p class="subtle">Week starts on {{ week_start_day }}.</p>
 </section>
 
 <section class="card">
-  <div class="stats">
-    <div class="stat"><strong>{{ planned_total }}</strong><br/>Planned</div>
-    <div class="stat"><strong>{{ completed_total }}</strong><br/>Completed</div>
-  </div>
-</section>
-
-<section class="card">
-  <div class="planner-grid planner-head">
-    {% for day_name in weekday_names %}
+  <div class="planner-scroll" id="planner-scroll">
+    <div class="planner-grid planner-head">
+      {% for day_name in weekday_names %}
       <div class="planner-col-head"><strong>{{ day_name }}</strong></div>
-    {% endfor %}
-  </div>
+      {% endfor %}
+    </div>
 
-  {% for week in weeks %}
-  <div class="planner-grid planner-week">
-    {% for day in week %}
-    <div class="planner-day {% if not day['in_month'] %}out-month{% endif %}">
-      <div class="planner-day-title">
-        <strong>{{ day['date'].strftime('%d %b') }}</strong>
-      </div>
+    {% for week in weeks %}
+    <div class="planner-grid planner-week">
+      {% for day in week %}
+      {% set planned_items = day['items'].get('planned', []) if day['in_month'] else [] %}
+      {% set completed_items = day['items'].get('completed', []) if day['in_month'] else [] %}
+      {% set total_items = planned_items|length + completed_items|length %}
+      {% set shown_count = (1 if planned_items|length > 0 else 0) + (1 if completed_items|length > 0 else 0) %}
+      {% set more_count = total_items - shown_count %}
+      <article class="planner-day {% if not day['in_month'] %}out-month{% endif %}{% if day['date'] == today %} today{% endif %}">
+        <div class="planner-day-title">
+          <strong>{{ day['date'].strftime('%d %b') }}</strong>
+        </div>
 
-      {% if day['in_month'] %}
-      <div class="planner-row"><span class="badge planned">Planned {{ day['items'].get('planned', [])|length }}</span></div>
-      <div class="planner-list">
-        {% for line in day['items'].get('planned', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
-      </div>
+        {% if day['in_month'] %}
+        <div class="day-chip-row">
+          <span class="day-count-chip">Planned {{ planned_items|length }}</span>
+          <span class="day-count-chip">Completed {{ completed_items|length }}</span>
+        </div>
 
-      <div class="planner-row"><span class="badge completed">Completed {{ day['items'].get('completed', [])|length }}</span></div>
-      <div class="planner-list">
-        {% for line in day['items'].get('completed', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
-      </div>
-      {% endif %}
+        {% if total_items > 0 %}
+        <div class="day-visits">
+          {% if planned_items|length > 0 %}
+          <div class="visit-pill is-planned">{{ planned_items[0] }}</div>
+          {% endif %}
+          {% if completed_items|length > 0 %}
+          <div class="visit-pill is-completed">{{ completed_items[0] }}</div>
+          {% endif %}
+          {% if more_count > 0 %}
+          <div class="visit-more">+{{ more_count }} more</div>
+          {% endif %}
+        </div>
+        {% else %}
+        <p class="day-empty">No visits</p>
+        {% endif %}
+
+        <button
+          type="button"
+          class="day-open-button"
+          data-day-open
+          data-date-label="{{ day['date'].strftime('%d %b %Y') }}"
+          data-planned='{{ planned_items | tojson | forceescape }}'
+          data-completed='{{ completed_items | tojson | forceescape }}'
+          aria-label="View {{ day['date'].strftime('%d %b %Y') }} details"
+        >
+          View
+        </button>
+        {% endif %}
+      </article>
+      {% endfor %}
     </div>
     {% endfor %}
   </div>
-  {% endfor %}
 </section>
+
+<div id="day-sheet" class="day-sheet" aria-hidden="true">
+  <button type="button" class="day-sheet-overlay" aria-label="Close day details"></button>
+  <aside class="day-sheet-panel" role="dialog" aria-modal="true" aria-label="Day detail sheet">
+    <div class="day-sheet-head">
+      <p id="day-sheet-title" class="day-sheet-title">Day Details</p>
+      <button id="day-sheet-close" type="button" class="sheet-close" aria-label="Close day details">Close</button>
+    </div>
+
+    <div class="day-sheet-content">
+      <section class="day-section">
+        <h4>Planned</h4>
+        <ul id="day-sheet-planned" class="day-list"></ul>
+        <p id="day-sheet-planned-empty" class="day-empty">No planned visits.</p>
+      </section>
+
+      <section class="day-section">
+        <h4>Completed</h4>
+        <ul id="day-sheet-completed" class="day-list"></ul>
+        <p id="day-sheet-completed-empty" class="day-empty">No completed visits.</p>
+      </section>
+    </div>
+
+    <a href="/cvm" class="button-primary">Create Visit</a>
+  </aside>
+</div>
+
+<script>
+  (() => {
+    const sheet = document.getElementById("day-sheet");
+    const overlay = sheet ? sheet.querySelector(".day-sheet-overlay") : null;
+    const closeBtn = document.getElementById("day-sheet-close");
+    const titleEl = document.getElementById("day-sheet-title");
+    const plannedList = document.getElementById("day-sheet-planned");
+    const completedList = document.getElementById("day-sheet-completed");
+    const plannedEmpty = document.getElementById("day-sheet-planned-empty");
+    const completedEmpty = document.getElementById("day-sheet-completed-empty");
+
+    if (!sheet || !overlay || !closeBtn || !titleEl || !plannedList || !completedList || !plannedEmpty || !completedEmpty) {
+      return;
+    }
+
+    const renderList = (target, emptyEl, items) => {
+      target.innerHTML = "";
+      if (!Array.isArray(items) || items.length === 0) {
+        emptyEl.style.display = "block";
+        return;
+      }
+      emptyEl.style.display = "none";
+      items.forEach((item) => {
+        const li = document.createElement("li");
+        li.textContent = item;
+        target.appendChild(li);
+      });
+    };
+
+    const openSheet = (button) => {
+      const dateLabel = button.getAttribute("data-date-label") || "Day Details";
+      let planned = [];
+      let completed = [];
+
+      try {
+        planned = JSON.parse(button.getAttribute("data-planned") || "[]");
+      } catch (_) {
+        planned = [];
+      }
+
+      try {
+        completed = JSON.parse(button.getAttribute("data-completed") || "[]");
+      } catch (_) {
+        completed = [];
+      }
+
+      titleEl.textContent = dateLabel;
+      renderList(plannedList, plannedEmpty, planned);
+      renderList(completedList, completedEmpty, completed);
+
+      sheet.classList.add("is-open");
+      sheet.setAttribute("aria-hidden", "false");
+      document.body.classList.add("sheet-open");
+    };
+
+    const closeSheet = () => {
+      sheet.classList.remove("is-open");
+      sheet.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("sheet-open");
+    };
+
+    document.querySelectorAll("[data-day-open]").forEach((button) => {
+      button.addEventListener("click", () => openSheet(button));
+    });
+
+    overlay.addEventListener("click", closeSheet);
+    closeBtn.addEventListener("click", closeSheet);
+
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && sheet.classList.contains("is-open")) {
+        closeSheet();
+      }
+    });
+  })();
+</script>
 {% endblock %}
