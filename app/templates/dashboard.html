@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Planner Dashboard</title>
+    <meta name="theme-color" content="#eef3fb" />
+    <link rel="stylesheet" href="/static/styles.css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -12,12 +14,16 @@
             boxShadow: {
               soft: "0 6px 24px rgba(15, 23, 42, 0.08)",
             },
+            borderRadius: {
+              xl: "var(--radius)",
+              "2xl": "calc(var(--radius) + 2px)",
+            },
           },
         },
       };
     </script>
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased">
+  <body class="text-slate-900 antialiased">
     <div id="dashboard-root"></div>
     <script id="dashboard-data" type="application/json">{{ dashboard_data | tojson }}</script>
 

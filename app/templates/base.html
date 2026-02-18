@@ -3,22 +3,120 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#eef3fb" />
     <title>Calendar Planner</title>
     <link rel="stylesheet" href="/static/styles.css" />
+    {% block head_extra %}{% endblock %}
   </head>
   <body>
-    <header>
-      <nav>
-        <a href="/">Dashboard</a>
-        <a href="/calendar">12-Month Planner</a>
-        <a href="/cvm">CVM View</a>
-        <a href="/customers">Customers</a>
-        <a href="/products">Products</a>
-        <a href="/import">Import Workbook</a>
-      </nav>
+    <header class="app-header">
+      <div class="app-header-inner">
+        <a href="/" class="brand-link" aria-label="Go to dashboard">
+          <span class="brand-mark">P</span>
+          <span class="brand-text">Planner Dashboard</span>
+        </a>
+
+        <nav class="desktop-nav" aria-label="Primary navigation">
+          <a href="/" class="nav-link" data-nav-link>Dashboard</a>
+          <a href="/calendar" class="nav-link" data-nav-link>12-Month Planner</a>
+          <a href="/cvm" class="nav-link" data-nav-link>CVM View</a>
+          <a href="/customers" class="nav-link" data-nav-link>Customers</a>
+          <a href="/products" class="nav-link" data-nav-link>Products</a>
+          <a href="/events" class="nav-link" data-nav-link>Visit Events</a>
+          <a href="/import" class="nav-link" data-nav-link>Import Workbook</a>
+        </nav>
+
+        <button
+          id="menu-button"
+          type="button"
+          class="menu-button"
+          aria-label="Open menu"
+          aria-controls="side-sheet"
+          aria-expanded="false"
+        >
+          Menu
+        </button>
+
+        <div class="header-actions">
+          <a href="/import" class="button-secondary action-button">Import</a>
+          <a href="/cvm" class="button-primary action-button">New Visit</a>
+        </div>
+      </div>
     </header>
-    <main>
+
+    <div id="side-sheet" class="side-sheet" aria-hidden="true">
+      <button type="button" class="sheet-overlay" aria-label="Close menu"></button>
+      <aside class="sheet-panel" role="dialog" aria-modal="true" aria-label="Navigation menu">
+        <div class="sheet-head">
+          <p>Navigation</p>
+          <button id="sheet-close" type="button" class="sheet-close" aria-label="Close menu">Close</button>
+        </div>
+        <nav class="sheet-nav" aria-label="Mobile navigation">
+          <a href="/" class="nav-link" data-nav-link>Dashboard</a>
+          <a href="/calendar" class="nav-link" data-nav-link>12-Month Planner</a>
+          <a href="/cvm" class="nav-link" data-nav-link>CVM View</a>
+          <a href="/customers" class="nav-link" data-nav-link>Customers</a>
+          <a href="/products" class="nav-link" data-nav-link>Products</a>
+          <a href="/events" class="nav-link" data-nav-link>Visit Events</a>
+          <a href="/import" class="nav-link" data-nav-link>Import Workbook</a>
+        </nav>
+        <div class="sheet-actions">
+          <a href="/import" class="button-secondary action-button">Import</a>
+          <a href="/cvm" class="button-primary action-button">New Visit</a>
+        </div>
+      </aside>
+    </div>
+
+    <main class="app-main">
       {% block content %}{% endblock %}
     </main>
+
+    <script>
+      (() => {
+        const path = window.location.pathname;
+        document.querySelectorAll("[data-nav-link]").forEach((link) => {
+          const href = link.getAttribute("href") || "";
+          const active = path === href || (href !== "/" && path.startsWith(href));
+          if (active) link.classList.add("is-active");
+        });
+
+        const sheet = document.getElementById("side-sheet");
+        const openBtn = document.getElementById("menu-button");
+        const closeBtn = document.getElementById("sheet-close");
+        const overlay = sheet ? sheet.querySelector(".sheet-overlay") : null;
+
+        if (!sheet || !openBtn || !closeBtn || !overlay) {
+          return;
+        }
+
+        const open = () => {
+          sheet.classList.add("open");
+          sheet.setAttribute("aria-hidden", "false");
+          openBtn.setAttribute("aria-expanded", "true");
+          document.body.classList.add("sheet-open");
+        };
+
+        const close = () => {
+          sheet.classList.remove("open");
+          sheet.setAttribute("aria-hidden", "true");
+          openBtn.setAttribute("aria-expanded", "false");
+          document.body.classList.remove("sheet-open");
+        };
+
+        openBtn.addEventListener("click", open);
+        closeBtn.addEventListener("click", close);
+        overlay.addEventListener("click", close);
+
+        sheet.querySelectorAll("a").forEach((a) => {
+          a.addEventListener("click", close);
+        });
+
+        window.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && sheet.classList.contains("open")) {
+            close();
+          }
+        });
+      })();
+    </script>
   </body>
 </html>
