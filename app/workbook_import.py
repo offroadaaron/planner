@@ -13,6 +13,20 @@ VALID_VALIDATION_MODES = {"standard", "strict"}
 VALID_DUPLICATE_POLICIES = {"last_wins", "first_wins", "error"}
 ROW_ISSUE_LIMIT = 300
 MONTH_SHORT = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+MONTH_NAMES = [
+    "JANUARY",
+    "FEBRUARY",
+    "MARCH",
+    "APRIL",
+    "MAY",
+    "JUNE",
+    "JULY",
+    "AUGUST",
+    "SEPTEMBER",
+    "OCTOBER",
+    "NOVEMBER",
+    "DECEMBER",
+]
 
 
 def _clean_text(value: Any) -> str:
@@ -26,9 +40,49 @@ def _clean_code(value: Any) -> str:
     raw = _clean_text(value)
     if not raw:
         return ""
+    if raw in {"0", "0.0"}:
+        return ""
     if raw.endswith(".0") and raw.replace(".", "", 1).isdigit():
         return raw[:-2]
     return raw
+
+
+def _normalize_header_label(value: Any) -> str:
+    raw = _clean_text(value).upper().replace("_", " ").replace("-", " ").replace("/", " ")
+    cleaned = "".join(ch if (ch.isalnum() or ch == " ") else " " for ch in raw)
+    return " ".join(cleaned.split())
+
+
+def _find_header_column(headers: list[Any], candidates: set[str]) -> int | None:
+    normalized_candidates = {_normalize_header_label(c) for c in candidates if _clean_text(c)}
+    if not normalized_candidates:
+        return None
+    for idx, header in enumerate(headers, start=1):
+        if _normalize_header_label(header) in normalized_candidates:
+            return idx
+    return None
+
+
+def _column_value(row: tuple[Any, ...] | list[Any], column_index: int | None) -> Any:
+    if column_index is None or column_index <= 0:
+        return None
+    if column_index > len(row):
+        return None
+    return row[column_index - 1]
+
+
+def _is_effectively_empty(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, (int, float)):
+        return value == 0
+    return _clean_text(value) == ""
+
+
+def _has_meaningful_values(values: list[Any]) -> bool:
+    return any(not _is_effectively_empty(v) for v in values)
 
 
 def _extract_name(value: Any) -> str:
@@ -72,6 +126,28 @@ def _to_bool(value: Any) -> bool:
     return raw in {"true", "yes", "y", "1", "done", "completed", "x"}
 
 
+def _to_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        return None
+
+    raw = _clean_text(value)
+    if not raw:
+        return None
+    if raw.endswith(".0") and raw.replace(".", "", 1).isdigit():
+        raw = raw[:-2]
+    if raw.lstrip("-").isdigit():
+        return int(raw)
+    return None
+
+
 def _sheet_by_prefix(workbook, prefix: str):
     target = prefix.strip().lower()
     for name in workbook.sheetnames:
@@ -89,18 +165,106 @@ def _sheet_by_exact(workbook, wanted: str):
 
 
 def _resolve_calendar_year(workbook) -> int | None:
-    january = _sheet_by_exact(workbook, "JANUARY")
-    if january is None:
+    def _year_from_value(value: Any) -> int | None:
+        if isinstance(value, (int, float)):
+            year_value = int(value)
+            return year_value if 2000 <= year_value <= 2100 else None
+        raw = _clean_text(value)
+        if raw.isdigit():
+            year_value = int(raw)
+            return year_value if 2000 <= year_value <= 2100 else None
         return None
-    value = january["R4"].value
-    if isinstance(value, (int, float)):
-        year = int(value)
-        return year if 2000 <= year <= 2100 else None
-    raw = _clean_text(value)
-    if raw.isdigit():
-        year = int(raw)
-        return year if 2000 <= year <= 2100 else None
+
+    for month_name in MONTH_NAMES:
+        month_sheet = _sheet_by_exact(workbook, month_name)
+        if month_sheet is None:
+            continue
+        year_value = _year_from_value(month_sheet["R4"].value)
+        if year_value is not None:
+            return year_value
+
+    for sheet_name in workbook.sheetnames:
+        sheet = workbook[sheet_name]
+        year_value = _year_from_value(sheet["R4"].value)
+        if year_value is not None:
+            return year_value
+
     return None
+
+
+def _resolve_cvm_column_map(cvm_sheet) -> dict[str, Any]:
+    max_col = cvm_sheet.max_column
+    header_row = [_clean_text(cvm_sheet.cell(row=3, column=i).value) for i in range(1, max_col + 1)]
+
+    resolved: dict[str, Any] = {
+        "door_count_col": _find_header_column(header_row, {"DOOR COUNT"}) or 1,
+        "territory_col": _find_header_column(header_row, {"TERRITORY"}) or 2,
+        "cust_code_col": _find_header_column(header_row, {"CUST CODE", "CUSTOMER CODE", "CUSTOMER NUMBER"}) or 3,
+        "sort_col": _find_header_column(header_row, {"SORT"}) or 4,
+        "customer_name_col": _find_header_column(header_row, {"CUSTOMER NAME"}) or 5,
+        "trade_name_col": _find_header_column(header_row, {"TRADE NAME"}) or 6,
+        "notes_col": _find_header_column(header_row, {"NOTES COMMENTS", "NOTES", "COMMENTS"}) or 7,
+        "month_cols": {},
+    }
+
+    month_cols: dict[int, dict[str, int]] = {}
+    for col_idx, label in enumerate(header_row, start=1):
+        normalized = _normalize_header_label(label)
+        for month_idx, month_short in enumerate(MONTH_SHORT, start=1):
+            if normalized == f"PLANNED {month_short}":
+                month_cols.setdefault(month_idx, {})["planned_col"] = col_idx
+            elif normalized in {f"COMPLETED {month_short}", f"COMPLETE {month_short}", f"DONE {month_short}"}:
+                month_cols.setdefault(month_idx, {})["completed_col"] = col_idx
+
+    # Legacy fallback if month headers are missing or shifted.
+    for month_idx in range(1, 13):
+        legacy_planned_col = 11 + (month_idx - 1) * 2
+        legacy_completed_col = legacy_planned_col + 1
+        cols = month_cols.setdefault(month_idx, {})
+        if "planned_col" not in cols and legacy_planned_col <= max_col:
+            cols["planned_col"] = legacy_planned_col
+        if "completed_col" not in cols and legacy_completed_col <= max_col:
+            cols["completed_col"] = legacy_completed_col
+
+    resolved["month_cols"] = month_cols
+    return resolved
+
+
+def _find_database_column(field_labels: list[str], product_labels: list[str], candidates: set[str]) -> int | None:
+    found = _find_header_column(field_labels, candidates)
+    if found is not None:
+        return found
+    return _find_header_column(product_labels, candidates)
+
+
+def _cell_value(sheet, row_idx: int, col_idx: int | None) -> Any:
+    if col_idx is None or col_idx <= 0:
+        return None
+    return sheet.cell(row=row_idx, column=col_idx).value
+
+
+def _resolve_database_column_map(database_sheet) -> dict[str, int]:
+    max_col = database_sheet.max_column
+    product_labels = [_clean_text(database_sheet.cell(row=3, column=i).value) for i in range(1, max_col + 1)]
+    field_labels = [_clean_text(database_sheet.cell(row=4, column=i).value) for i in range(1, max_col + 1)]
+
+    return {
+        "territory_col": _find_database_column(field_labels, product_labels, {"TERRITORY"}) or 21,
+        "cust_code_col": _find_database_column(
+            field_labels,
+            product_labels,
+            {"CUST CODE", "CUSTOMER CODE", "CUSTOMER NUMBER"},
+        )
+        or 22,
+        "customer_name_col": _find_database_column(field_labels, product_labels, {"CUSTOMER NAME"}) or 23,
+        "trade_name_col": _find_database_column(field_labels, product_labels, {"TRADE NAME"}) or 24,
+        "last_visit_col": _find_database_column(
+            field_labels,
+            product_labels,
+            {"LAST VISIT", "DATE OF LAST COMPLETED VISIT", "DATE OF LAST VISIT"},
+        )
+        or 25,
+    }
 
 
 def _normalize_upsert_policy(upsert_policy: str) -> str:
@@ -294,6 +458,7 @@ def _upsert_customer(
     iws_code: str = "",
     old_value: str = "",
     old_name: str = "",
+    door_count: int | None = None,
     cvm_notes: str = "",
 ) -> int:
     code = _clean_code(cust_code)
@@ -313,12 +478,12 @@ def _upsert_customer(
                 INSERT INTO customers (
                   cust_code, name, trade_name, territory_id,
                   group_name, group_2_iws, iws_code,
-                  old_value, old_name, cvm_notes, created_at
+                  old_value, old_name, door_count, cvm_notes, created_at
                 )
                 VALUES (
                   :cust_code, :name, NULLIF(:trade_name, ''), :territory_id,
                   NULLIF(:group_name, ''), NULLIF(:group_2_iws, ''), NULLIF(:iws_code, ''),
-                  NULLIF(:old_value, ''), NULLIF(:old_name, ''), NULLIF(:cvm_notes, ''), NOW()
+                  NULLIF(:old_value, ''), NULLIF(:old_name, ''), :door_count, NULLIF(:cvm_notes, ''), NOW()
                 )
                 RETURNING id
                 """
@@ -333,6 +498,7 @@ def _upsert_customer(
                 "iws_code": _clean_text(iws_code),
                 "old_value": _clean_text(old_value),
                 "old_name": _clean_text(old_name),
+                "door_count": door_count,
                 "cvm_notes": _clean_text(cvm_notes),
             },
         ).scalar_one()
@@ -358,6 +524,7 @@ def _upsert_customer(
                   iws_code = NULLIF(:iws_code, ''),
                   old_value = NULLIF(:old_value, ''),
                   old_name = NULLIF(:old_name, ''),
+                  door_count = COALESCE(:door_count, door_count),
                   cvm_notes = NULLIF(:cvm_notes, '')
                 WHERE id = :customer_id
                 """
@@ -372,6 +539,7 @@ def _upsert_customer(
                 "iws_code": _clean_text(iws_code),
                 "old_value": _clean_text(old_value),
                 "old_name": _clean_text(old_name),
+                "door_count": door_count,
                 "cvm_notes": _clean_text(cvm_notes),
             },
         )
@@ -391,6 +559,7 @@ def _upsert_customer(
               iws_code = COALESCE(NULLIF(:iws_code, ''), iws_code),
               old_value = COALESCE(NULLIF(:old_value, ''), old_value),
               old_name = COALESCE(NULLIF(:old_name, ''), old_name),
+              door_count = COALESCE(:door_count, door_count),
               cvm_notes = COALESCE(NULLIF(:cvm_notes, ''), cvm_notes)
             WHERE id = :customer_id
             """
@@ -405,6 +574,7 @@ def _upsert_customer(
             "iws_code": _clean_text(iws_code),
             "old_value": _clean_text(old_value),
             "old_name": _clean_text(old_name),
+            "door_count": door_count,
             "cvm_notes": _clean_text(cvm_notes),
         },
     )
@@ -886,16 +1056,39 @@ def import_planner_workbook(
     if cvm is None:
         _add_warning(summary, "CVM sheet not found; skipped monthly planning import.")
     else:
+        cvm_columns = _resolve_cvm_column_map(cvm)
         for row_num, row in enumerate(cvm.iter_rows(min_row=4, values_only=True), start=4):
-            cust_code = _clean_code(row[2] if len(row) > 2 else None)
-            territory_name = _clean_text(row[1] if len(row) > 1 else None)
-            customer_name = _clean_text(row[4] if len(row) > 4 else None)
-            trade_name = _clean_text(row[5] if len(row) > 5 else None)
-            cvm_notes = _clean_text(row[6] if len(row) > 6 else None)
-            sort_bucket = _clean_text(row[3] if len(row) > 3 else None)
+            door_count_raw = _column_value(row, cvm_columns["door_count_col"])
+            door_count = _to_int(door_count_raw)
+            if door_count is None and _clean_text(door_count_raw):
+                _record_issue(
+                    summary,
+                    level=_validation_level(summary),
+                    sheet=cvm.title,
+                    row=row_num,
+                    message=f"Invalid Door Count '{_clean_text(door_count_raw)}'; value ignored.",
+                )
+
+            cust_code = _clean_code(_column_value(row, cvm_columns["cust_code_col"]))
+            territory_name = _clean_text(_column_value(row, cvm_columns["territory_col"]))
+            customer_name = _clean_text(_column_value(row, cvm_columns["customer_name_col"]))
+            trade_name = _clean_text(_column_value(row, cvm_columns["trade_name_col"]))
+            cvm_notes = _clean_text(_column_value(row, cvm_columns["notes_col"]))
+            sort_bucket = _clean_text(_column_value(row, cvm_columns["sort_col"]))
+
+            row_signal_values = [
+                _column_value(row, cvm_columns["territory_col"]),
+                _column_value(row, cvm_columns["customer_name_col"]),
+                _column_value(row, cvm_columns["trade_name_col"]),
+                _column_value(row, cvm_columns["notes_col"]),
+            ]
+            for month_idx in range(1, 13):
+                month_columns = cvm_columns["month_cols"].get(month_idx, {})
+                row_signal_values.append(_column_value(row, month_columns.get("planned_col")))
+                row_signal_values.append(_column_value(row, month_columns.get("completed_col")))
 
             if not cust_code:
-                if _is_row_populated(row):
+                if _has_meaningful_values(row_signal_values):
                     _record_issue(
                         summary,
                         level="error",
@@ -924,6 +1117,7 @@ def import_planner_workbook(
                 territory_id,
                 resolved_policy,
                 trade_name=trade_name,
+                door_count=door_count,
                 cvm_notes=cvm_notes,
             )
 
@@ -946,16 +1140,26 @@ def import_planner_workbook(
                 )
 
             for month_idx in range(1, 13):
-                planned_col = 10 + (month_idx - 1) * 2
-                completed_col = planned_col + 1
+                month_columns = cvm_columns["month_cols"].get(month_idx, {})
+                planned_col = month_columns.get("planned_col")
+                completed_col = month_columns.get("completed_col")
                 planned_date = _to_date_with_issue(
-                    row[planned_col] if len(row) > planned_col else None,
+                    _column_value(row, planned_col),
                     summary=summary,
                     sheet=cvm.title,
                     row=row_num,
                     field=f"PLANNED {MONTH_SHORT[month_idx - 1]}",
                 )
-                completed_manual = _to_bool(row[completed_col] if len(row) > completed_col else None)
+                completed_manual = _to_bool(_column_value(row, completed_col))
+                if completed_manual and not planned_date:
+                    _record_issue(
+                        summary,
+                        level=_validation_level(summary),
+                        sheet=cvm.title,
+                        row=row_num,
+                        message=f"COMPLETED {MONTH_SHORT[month_idx - 1]} ignored because planned date is missing or invalid.",
+                    )
+                    completed_manual = False
                 if not planned_date and not completed_manual:
                     continue
 
@@ -1022,6 +1226,7 @@ def import_planner_workbook(
         max_col = database.max_column
         product_labels = [_clean_text(database.cell(row=3, column=i).value) for i in range(1, max_col + 1)]
         field_labels = [_clean_text(database.cell(row=4, column=i).value) for i in range(1, max_col + 1)]
+        database_columns = _resolve_database_column_map(database)
 
         product_groups: list[tuple[int, str]] = []
         for i, field_name in enumerate(field_labels, start=1):
@@ -1033,20 +1238,38 @@ def import_planner_workbook(
             _add_warning(summary, "No ACTION product groups found in Database sheet.")
         else:
             for row_idx in range(5, database.max_row + 1):
-                cust_code = _clean_code(database.cell(row=row_idx, column=22).value)  # V
-                territory_name = _clean_text(database.cell(row=row_idx, column=21).value)  # U
-                customer_name = _clean_text(database.cell(row=row_idx, column=23).value)  # W
-                trade_name = _clean_text(database.cell(row=row_idx, column=24).value)  # X
+                cust_code_raw = _cell_value(database, row_idx, database_columns["cust_code_col"])
+                territory_raw = _cell_value(database, row_idx, database_columns["territory_col"])
+                customer_name_raw = _cell_value(database, row_idx, database_columns["customer_name_col"])
+                trade_name_raw = _cell_value(database, row_idx, database_columns["trade_name_col"])
+                last_visit_raw = _cell_value(database, row_idx, database_columns["last_visit_col"])
+
+                cust_code = _clean_code(cust_code_raw)
+                territory_name = _clean_text(territory_raw)
+                customer_name = _clean_text(customer_name_raw)
+                trade_name = _clean_text(trade_name_raw)
                 last_visit = _to_date_with_issue(
-                    database.cell(row=row_idx, column=25).value,
+                    last_visit_raw,
                     summary=summary,
                     sheet=database.title,
                     row=row_idx,
                     field="LAST VISIT",
                 )
 
+                row_signal_values = [territory_raw, customer_name_raw, trade_name_raw, last_visit_raw]
+                for action_col, _product_name in product_groups:
+                    row_signal_values.extend(
+                        [
+                            _cell_value(database, row_idx, action_col),
+                            _cell_value(database, row_idx, action_col + 1),
+                            _cell_value(database, row_idx, action_col + 2),
+                            _cell_value(database, row_idx, action_col + 3),
+                            _cell_value(database, row_idx, action_col + 4),
+                        ]
+                    )
+
                 if not cust_code:
-                    if territory_name or customer_name or trade_name or last_visit:
+                    if _has_meaningful_values(row_signal_values):
                         _record_issue(
                             summary,
                             level="error",

@@ -30,8 +30,6 @@
   <div class="stats">
     <div class="stat"><strong>{{ planned_total }}</strong><br/>Planned</div>
     <div class="stat"><strong>{{ completed_total }}</strong><br/>Completed</div>
-    <div class="stat"><strong>{{ holiday_total }}</strong><br/>Public Holidays</div>
-    <div class="stat"><strong>{{ leave_day_total }}</strong><br/>Leave Days</div>
   </div>
 </section>
 
@@ -60,20 +58,6 @@
       <div class="planner-list">
         {% for line in day['items'].get('completed', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
       </div>
-
-      {% if day['items'].get('holiday', [])|length > 0 %}
-      <div class="planner-row"><span class="badge holiday">Holiday {{ day['items'].get('holiday', [])|length }}</span></div>
-      <div class="planner-list">
-        {% for line in day['items'].get('holiday', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
-      </div>
-      {% endif %}
-
-      {% if day['items'].get('leave', [])|length > 0 %}
-      <div class="planner-row"><span class="badge leave">Leave {{ day['items'].get('leave', [])|length }}</span></div>
-      <div class="planner-list">
-        {% for line in day['items'].get('leave', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
-      </div>
-      {% endif %}
       {% endif %}
     </div>
     {% endfor %}

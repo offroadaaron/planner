@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS customers (
   iws_code TEXT,
   old_value TEXT,
   old_name TEXT,
+  door_count INTEGER,
   cvm_notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

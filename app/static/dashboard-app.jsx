@@ -4,7 +4,6 @@ const Icons = window.lucideReact || {};
 const {
   LayoutDashboard,
   Users,
-  Store,
   CalendarCheck2,
   CalendarDays,
   Search,
@@ -1323,14 +1322,7 @@ function DashboardApp({ data }) {
       icon: Users,
     },
     {
-      label: "Stores",
-      value: counts.stores ?? 0,
-      helper: (counts.stores || 0) > 0 ? "connected locations" : "no stores yet",
-      href: "/customers",
-      icon: Store,
-    },
-    {
-      label: "Visit Events",
+      label: "Visit Entries",
       value: counts.cvm_entries ?? 0,
       helper: "tracked in CVM",
       href: "/cvm",
@@ -1362,9 +1354,9 @@ function DashboardApp({ data }) {
             }
           />
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {loading
-              ? Array.from({ length: 4 }).map((_, i) => (
+              ? Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="mt-3 h-9 w-24" />
@@ -1373,28 +1365,6 @@ function DashboardApp({ data }) {
                 ))
               : statCards.map((card) => <StatCard key={card.label} {...card} />)}
           </div>
-
-          {!loading && (counts.stores || 0) === 0 ? (
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
-              <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-                <div>
-                  <p className="text-sm font-semibold">Add your first store</p>
-                  <p className="text-sm text-amber-800">Create a location profile to improve visit planning context.</p>
-                </div>
-                <a
-                  href="/customers"
-                  className={cx(
-                    touchTarget(),
-                    "inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 text-sm font-medium text-amber-900",
-                    "hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-                  )}
-                >
-                  Go to Customers
-                  {ChevronRight ? <ChevronRight size={16} /> : null}
-                </a>
-              </div>
-            </div>
-          ) : null}
         </section>
 
         <div className="grid gap-6 md:grid-cols-12">

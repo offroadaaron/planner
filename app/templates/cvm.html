@@ -18,6 +18,7 @@
   <table class="matrix-table">
     <thead>
       <tr>
+        <th>Door Count</th>
         <th>Territory</th>
         <th>Cust Code</th>
         <th>SORT</th>
@@ -35,6 +36,7 @@
     <tbody>
       {% for r in rows %}
       <tr>
+        <td>{{ r.door_count }}</td>
         <td>{{ r.territory }}</td>
         <td>{{ r.cust_code }}</td>
         <td>{{ r.sort_bucket }}</td>
@@ -71,7 +73,7 @@
         {% endfor %}
       </tr>
       {% else %}
-      <tr><td colspan="21">No customer rows available yet.</td></tr>
+      <tr><td colspan="22">No customer rows available yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -50,6 +50,7 @@ def client_and_engine(tmp_path):
                   iws_code TEXT,
                   old_value TEXT,
                   old_name TEXT,
+                  door_count INTEGER,
                   cvm_notes TEXT,
                   created_at TEXT
                 )
@@ -1055,6 +1056,52 @@ def test_import_workbook_apply_strict_blocks_on_row_errors(client_and_engine):
             text("SELECT COUNT(*) FROM customers WHERE cust_code = 'C101'")
         ).scalar_one()
     assert customer_count == 0
+
+
+def test_import_workbook_ignores_completed_without_valid_planned_date(client_and_engine):
+    client, engine = client_and_engine
+    workbook_bytes = _build_invalid_date_workbook_bytes()
+
+    response = client.post(
+        "/import/workbook",
+        data={
+            "year_override": "2026",
+            "import_mode": "apply",
+            "upsert_policy": "merge",
+            "validation_mode": "standard",
+            "duplicate_policy": "last_wins",
+        },
+        files={
+            "workbook_file": (
+                "planner-invalid.xlsm",
+                workbook_bytes,
+                "application/vnd.ms-excel.sheet.macroEnabled.12",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert "COMPLETED JAN ignored because planned date is missing or invalid." in response.text
+
+    with engine.begin() as conn:
+        customer = conn.execute(
+            text("SELECT id FROM customers WHERE cust_code = 'C101'")
+        ).mappings().first()
+        assert customer is not None
+        cvm_count = conn.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM cvm_month_entries
+                WHERE customer_id = :customer_id
+                  AND year = 2026
+                  AND month = 1
+                """
+            ),
+            {"customer_id": customer["id"]},
+        ).scalar_one()
+
+    assert cvm_count == 0
 
 
 def test_import_workbook_duplicate_policy_error_blocks_apply(client_and_engine):

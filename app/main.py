@@ -63,6 +63,9 @@ def ensure_cvm_tables():
         conn.execute(
             text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS cvm_notes TEXT")
         )
+        conn.execute(
+            text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS door_count INTEGER")
+        )
 
 
 def get_db():
@@ -184,11 +187,8 @@ def health(db: Session = Depends(get_db)):
 @app.get("/")
 def dashboard(request: Request, db: Session = Depends(get_db)):
     today = date.today()
-    stores_table_exists = db.execute(text("SELECT to_regclass('public.stores') IS NOT NULL")).scalar_one()
-    stores_count = db.execute(text("SELECT COUNT(*) FROM stores")).scalar_one() if stores_table_exists else 0
     counts = {
         "customers": db.execute(text("SELECT COUNT(*) FROM customers")).scalar_one(),
-        "stores": stores_count,
         "products": db.execute(text("SELECT COUNT(*) FROM products")).scalar_one(),
         "cvm_entries": db.execute(text("SELECT COUNT(*) FROM cvm_month_entries")).scalar_one(),
     }
@@ -647,7 +647,6 @@ def calendar_page(
 
     territories = db.execute(text("SELECT id, name FROM territories ORDER BY name")).mappings().all()
     territory_id_value = parse_optional_int(territory_id)
-    month_start, month_end = month_window(year, month)
 
     # CVM month entries are the primary planning source for this grid.
     cvm_rows = db.execute(
@@ -669,51 +668,7 @@ def calendar_page(
         {"year": year, "month": month, "territory_id": territory_id_value},
     ).mappings().all()
 
-    holiday_rows = db.execute(
-        text(
-            """
-            SELECT holiday_date, name
-            FROM public_holidays
-            WHERE holiday_date BETWEEN :start_date AND :end_date
-              AND (
-                :territory_id IS NULL
-                OR territory_id IS NULL
-                OR territory_id = :territory_id
-              )
-            ORDER BY holiday_date, name
-            """
-        ),
-        {
-            "start_date": month_start,
-            "end_date": month_end,
-            "territory_id": territory_id_value,
-        },
-    ).mappings().all()
-
-    leave_rows = db.execute(
-        text(
-            """
-            SELECT start_date, end_date, COALESCE(rep_name, 'Annual Leave') AS rep_name,
-                   COALESCE(notes, '') AS notes
-            FROM annual_leaves
-            WHERE start_date <= :end_date
-              AND end_date >= :start_date
-              AND (
-                :territory_id IS NULL
-                OR territory_id IS NULL
-                OR territory_id = :territory_id
-              )
-            ORDER BY start_date, rep_name
-            """
-        ),
-        {
-            "start_date": month_start,
-            "end_date": month_end,
-            "territory_id": territory_id_value,
-        },
-    ).mappings().all()
-
-    day_items = defaultdict(lambda: {"planned": [], "completed": [], "holiday": [], "leave": []})
+    day_items = defaultdict(lambda: {"planned": [], "completed": []})
     planned_total = 0
     completed_total = 0
 
@@ -730,24 +685,6 @@ def calendar_page(
         else:
             day_items[day]["planned"].append(item_text)
             planned_total += 1
-
-    for row in holiday_rows:
-        holiday_day = row["holiday_date"].day
-        day_items[holiday_day]["holiday"].append(str(row["name"]))
-
-    leave_day_total = 0
-    for row in leave_rows:
-        start_date = max(month_start, row["start_date"])
-        end_date = min(month_end, row["end_date"])
-        label = str(row["rep_name"]).strip()
-        if row["notes"]:
-            label = f"{label} - {row['notes']}"
-
-        cursor = start_date
-        while cursor <= end_date:
-            day_items[cursor.day]["leave"].append(label)
-            leave_day_total += 1
-            cursor = date.fromordinal(cursor.toordinal() + 1)
 
     firstweekday = 0 if resolved_week_start == "monday" else 6
     cal = calendar.Calendar(firstweekday=firstweekday)
@@ -786,8 +723,6 @@ def calendar_page(
             "week_start_day": resolved_week_start,
             "planned_total": planned_total,
             "completed_total": completed_total,
-            "holiday_total": len(holiday_rows),
-            "leave_day_total": leave_day_total,
             "territories": territories,
             "territory_id": territory_id_value,
             "prev_month": prev_month,
@@ -819,6 +754,7 @@ def cvm_page(
             """
             SELECT c.id, COALESCE(t.name, '') AS territory, c.cust_code, c.name AS customer_name,
                    COALESCE(c.trade_name, '') AS trade_name,
+                   COALESCE(c.door_count, 0) AS door_count,
                    COALESCE(c.cvm_notes, '') AS cvm_notes,
                    COALESCE(c.group_name, '') AS sort_bucket
             FROM customers c
@@ -1159,7 +1095,7 @@ def list_customers(db: Session = Depends(get_db)):
     rows = db.execute(
         text(
             """
-            SELECT c.id, c.cust_code, c.name, c.trade_name, c.group_name, c.iws_code,
+            SELECT c.id, c.cust_code, c.name, c.trade_name, c.group_name, c.iws_code, c.door_count,
                    t.name AS territory
             FROM customers c
             LEFT JOIN territories t ON t.id = c.territory_id
