@@ -388,18 +388,6 @@ function AppHeader() {
           </button>
 
           <div className="ml-auto flex items-center gap-2">
-            <label className="hidden xl:block">
-              <span className="sr-only">Global search</span>
-              <input
-                type="search"
-                placeholder="Search"
-                className={cx(
-                  touchTarget(),
-                  "w-44 rounded-full border border-slate-300 bg-white px-3 text-sm text-slate-700",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-                )}
-              />
-            </label>
             <a
               href="/import"
               className={cx(
