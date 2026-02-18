@@ -1,35 +1,30 @@
-{% extends "base.html" %}
-{% block content %}
-<section class="card">
-  <h1>Planner Dashboard</h1>
-  <p class="subtle">Today: {{ today }}</p>
-  <div class="stats">
-    <div class="stat"><strong>{{ counts.customers }}</strong><br/>Customers</div>
-    <div class="stat"><strong>{{ counts.products }}</strong><br/>Products</div>
-    <div class="stat"><strong>{{ counts.cvm_entries }}</strong><br/>CVM Entries</div>
-    <div class="stat"><strong>{{ settings.calendar_year if settings else "-" }}</strong><br/>Calendar Year</div>
-  </div>
-</section>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Planner Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            boxShadow: {
+              soft: "0 6px 24px rgba(15, 23, 42, 0.08)",
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="dashboard-root"></div>
+    <script id="dashboard-data" type="application/json">{{ dashboard_data | tojson }}</script>
 
-<section class="card">
-  <h2>Recent Product Updates</h2>
-  <table>
-    <thead>
-      <tr><th>Updated</th><th>Product</th><th>Customer</th><th>Territory</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-      {% for p in recent_products %}
-      <tr>
-        <td>{{ p.updated_at }}</td>
-        <td>{{ p.product_name }}</td>
-        <td>{{ p.customer_name }}</td>
-        <td>{{ p.territory }}</td>
-        <td>{{ p.status or "" }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="5">No products found.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-{% endblock %}
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide-react@0.468.0/dist/umd/lucide-react.min.js"></script>
+    <script type="text/babel" data-presets="react" src="/static/dashboard-app.jsx"></script>
+  </body>
+</html>

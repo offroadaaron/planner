@@ -1,6 +1,6 @@
 import calendar
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
@@ -124,6 +124,16 @@ def ensure_product_exists(db: Session, product_id: int):
         raise HTTPException(status_code=400, detail="Invalid product_id")
 
 
+def json_safe(value):
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [json_safe(v) for v in value]
+    return value
+
+
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
@@ -132,8 +142,12 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/")
 def dashboard(request: Request, db: Session = Depends(get_db)):
+    today = date.today()
+    stores_table_exists = db.execute(text("SELECT to_regclass('public.stores') IS NOT NULL")).scalar_one()
+    stores_count = db.execute(text("SELECT COUNT(*) FROM stores")).scalar_one() if stores_table_exists else 0
     counts = {
         "customers": db.execute(text("SELECT COUNT(*) FROM customers")).scalar_one(),
+        "stores": stores_count,
         "products": db.execute(text("SELECT COUNT(*) FROM products")).scalar_one(),
         "cvm_entries": db.execute(text("SELECT COUNT(*) FROM cvm_month_entries")).scalar_one(),
     }
@@ -150,19 +164,90 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             """
         )
     ).mappings().all()
+    upcoming_rows = db.execute(
+        text(
+            """
+            SELECT e.id, e.planned_date AS event_date,
+                   COALESCE(c.name, 'N/A') AS customer_name,
+                   COALESCE(c.cust_code, '') AS cust_code,
+                   COALESCE(t.name, '') AS territory,
+                   CASE WHEN e.completed_manual THEN 'Completed' ELSE 'Planned' END AS status
+            FROM cvm_month_entries e
+            JOIN customers c ON c.id = e.customer_id
+            LEFT JOIN territories t ON t.id = c.territory_id
+            WHERE e.planned_date IS NOT NULL
+            ORDER BY e.planned_date ASC, c.name ASC
+            LIMIT 500
+            """
+        )
+    ).mappings().all()
+
+    month_points: list[dict[str, object]] = []
+    month_cursor = date(today.year, today.month, 1)
+    for _ in range(11):
+        prev_month = month_cursor.month - 1
+        prev_year = month_cursor.year
+        if prev_month == 0:
+            prev_month = 12
+            prev_year -= 1
+        month_cursor = date(prev_year, prev_month, 1)
+    for _ in range(12):
+        next_month = month_cursor.month + 1
+        next_year = month_cursor.year
+        if next_month == 13:
+            next_month = 1
+            next_year += 1
+        month_end = date(next_year, next_month, 1) - timedelta(days=1)
+
+        row = db.execute(
+            text(
+                """
+                SELECT
+                  SUM(CASE WHEN completed_manual THEN 0 ELSE 1 END) AS planned_count,
+                  SUM(CASE WHEN completed_manual THEN 1 ELSE 0 END) AS completed_count
+                FROM cvm_month_entries
+                WHERE planned_date BETWEEN :start_date AND :end_date
+                """
+            ),
+            {"start_date": month_cursor, "end_date": month_end},
+        ).mappings().first()
+        month_points.append(
+            {
+                "label": month_cursor.strftime("%b %y"),
+                "planned": int(row["planned_count"] or 0),
+                "completed": int(row["completed_count"] or 0),
+            }
+        )
+        month_cursor = date(next_year, next_month, 1)
+
     settings = db.execute(
         text("SELECT calendar_year, week_start_day FROM calendar_settings WHERE id = 1")
     ).mappings().first()
+    dashboard_data = {
+        "counts": counts,
+        "settings": dict(settings) if settings else {"calendar_year": today.year, "week_start_day": "monday"},
+        "today": today.isoformat(),
+        "upcoming": [json_safe(dict(r)) for r in upcoming_rows],
+        "recent_products": [json_safe(dict(r)) for r in recent_products],
+        "visitsByMonth": json_safe(month_points),
+    }
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
-            "counts": counts,
-            "recent_products": recent_products,
-            "settings": settings,
-            "today": date.today(),
+            "dashboard_data": dashboard_data,
         },
     )
+
+
+@app.get("/events")
+def events_alias():
+    return RedirectResponse(url="/cvm", status_code=307)
+
+
+@app.get("/stores")
+def stores_alias():
+    return RedirectResponse(url="/customers", status_code=307)
 
 
 @app.get("/customers")
