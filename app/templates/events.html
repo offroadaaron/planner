@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Visit Events</h1>
+  <form method="post" action="/events" class="grid">
+    <select name="customer_id" required>
+      <option value="">Customer</option>
+      {% for c in customers %}
+      <option value="{{ c.id }}">{{ c.cust_code }} - {{ c.name }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="store_id" required>
+      <option value="">Store</option>
+      {% for s in stores %}
+      <option value="{{ s.id }}">{{ s.address_1 }} {{ s.city }} {{ s.state }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="event_type" required>
+      {% for t in event_types %}
+      <option value="{{ t }}">{{ t }}</option>
+      {% endfor %}
+    </select>
+
+    <input type="date" name="event_date" required />
+
+    <select name="action">
+      <option value="">Action</option>
+      {% for a in actions %}
+      <option value="{{ a }}">{{ a }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="status">
+      <option value="">Status</option>
+      {% for s in statuses %}
+      <option value="{{ s }}">{{ s }}</option>
+      {% endfor %}
+    </select>
+
+    <input name="next_action" placeholder="Next Action" />
+    <input type="date" name="last_contact" placeholder="Last Contact" />
+    <input name="notes" placeholder="Notes" />
+    <button type="submit">Add Event</button>
+  </form>
+</section>
+
+<section class="card">
+  <table>
+    <thead>
+      <tr><th>Date</th><th>Type</th><th>Customer</th><th>Store</th><th>Action</th><th>Status</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <td>{{ e.event_date }}</td>
+        <td>{{ e.event_type }}</td>
+        <td>{{ e.cust_code or "" }} {{ e.customer_name or "" }}</td>
+        <td>{{ e.city or "" }} {{ e.state or "" }}</td>
+        <td>{{ e.action or "" }}</td>
+        <td>{{ e.status or "" }}</td>
+        <td>{{ e.notes or "" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No events yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

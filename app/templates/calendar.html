@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>{{ month_name }} {{ year }} Planner</h1>
+  <form method="get" action="/calendar" class="grid">
+    <input type="number" min="1" max="12" name="month" value="{{ month }}" />
+    <input type="number" min="2000" max="2100" name="year" value="{{ year }}" />
+    <select name="territory_id">
+      <option value="">All Territories</option>
+      {% for t in territories %}
+      <option value="{{ t.id }}" {% if territory_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Load Planner</button>
+  </form>
+  <p class="subtle">Week starts on {{ week_start_day }}.</p>
+</section>
+
+<section class="card">
+  <div class="stats">
+    <div class="stat"><strong>{{ planned_total }}</strong><br/>Planned</div>
+    <div class="stat"><strong>{{ completed_total }}</strong><br/>Completed</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="planner-grid planner-head">
+    {% for day_name in weekday_names %}
+      <div class="planner-col-head"><strong>{{ day_name }}</strong></div>
+    {% endfor %}
+  </div>
+
+  {% for week in weeks %}
+  <div class="planner-grid planner-week">
+    {% for day in week %}
+    <div class="planner-day {% if not day['in_month'] %}out-month{% endif %}">
+      <div class="planner-day-title">
+        <strong>{{ day['date'].strftime('%d %b') }}</strong>
+      </div>
+
+      {% if day['in_month'] %}
+      <div class="planner-row"><span class="badge planned">Planned {{ day['items'].get('planned', [])|length }}</span></div>
+      <div class="planner-list">
+        {% for line in day['items'].get('planned', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
+      </div>
+
+      <div class="planner-row"><span class="badge completed">Completed {{ day['items'].get('completed', [])|length }}</span></div>
+      <div class="planner-list">
+        {% for line in day['items'].get('completed', []) %}<div>{{ loop.index }}. {{ line }}</div>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Calendar Planner</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <nav>
+        <a href="/">Dashboard</a>
+        <a href="/calendar">12-Month Planner</a>
+        <a href="/cvm">CVM View</a>
+        <a href="/customers">Customers</a>
+        <a href="/stores">Stores</a>
+        <a href="/events">Visit Events</a>
+      </nav>
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

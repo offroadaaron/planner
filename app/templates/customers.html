@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Customers</h1>
+  <form method="post" action="/customers" class="grid">
+    <input name="cust_code" placeholder="Cust Code" required />
+    <input name="name" placeholder="Customer Name" required />
+    <input name="trade_name" placeholder="Trade Name" />
+    <input name="territory_name" placeholder="Territory (e.g. NSW (North))" />
+    <input name="group_name" placeholder="Group" />
+    <input name="iws_code" placeholder="IWS Code" />
+    <button type="submit">Add Customer</button>
+  </form>
+</section>
+
+<section class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Cust Code</th><th>Name</th><th>Trade Name</th><th>Territory</th><th>Group</th><th>IWS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in customers %}
+      <tr>
+        <td>{{ c.cust_code }}</td>
+        <td>{{ c.name }}</td>
+        <td>{{ c.trade_name or "" }}</td>
+        <td>{{ c.territory }}</td>
+        <td>{{ c.group_name or "" }}</td>
+        <td>{{ c.iws_code or "" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No customers yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
