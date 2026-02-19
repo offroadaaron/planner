@@ -27,7 +27,6 @@ const navItems = [
   { label: "CVM View", href: "/cvm" },
   { label: "Customers", href: "/customers" },
   { label: "Products", href: "/products" },
-  { label: "Visit Events", href: "/events" },
   { label: "Import Workbook", href: "/import" },
 ];
 
