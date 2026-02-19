@@ -19,6 +19,11 @@ const {
   Download,
   Check,
   AlertCircle,
+  Minus,
+  TrendingUp,
+  ChevronDown,
+  Sun,
+  Moon,
 } = Icons;
 
 const navItems = [
@@ -43,12 +48,54 @@ const exportFormats = [
   { value: "pdf", label: "PDF" },
 ];
 
+const THEME_STORAGE_KEY = "planner.theme";
+
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
 function touchTarget() {
   return "min-h-11";
+}
+
+function readStoredTheme() {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
+function applyTheme(theme) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", nextTheme);
+  document.documentElement.classList.toggle("dark", nextTheme === "dark");
+}
+
+function useThemePreference() {
+  const stored = readStoredTheme();
+  const [theme, setTheme] = useState(() => stored || "dark");
+  const [hasUserChoice, setHasUserChoice] = useState(() => Boolean(stored));
+
+  useEffect(() => {
+    applyTheme(theme);
+    try {
+      if (hasUserChoice) {
+        window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+      } else {
+        window.localStorage.removeItem(THEME_STORAGE_KEY);
+      }
+    } catch (_) {}
+  }, [theme, hasUserChoice]);
+
+  const toggleTheme = () => {
+    setHasUserChoice(true);
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
+
+  return { theme, toggleTheme };
 }
 
 function formatDate(value) {
@@ -252,7 +299,7 @@ function NavLinks({ mobile = false, onNavigate }) {
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
           mobile && "w-full",
           active
-            ? "bg-sky-100 text-sky-900"
+            ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200"
             : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200"
         )}
       >
@@ -334,7 +381,7 @@ function MobileNavSheet({ open, onClose }) {
             href="/cvm"
             className={cx(
               touchTarget(),
-              "inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 text-sm font-semibold text-white hover:bg-sky-700",
+              "inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 text-sm font-semibold text-[#0b0f13] hover:bg-emerald-600",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
             )}
           >
@@ -347,7 +394,68 @@ function MobileNavSheet({ open, onClose }) {
   );
 }
 
-function AppHeader() {
+function HeaderImportMenu() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onWindowClick = (event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("[data-import-menu]")) return;
+      setOpen(false);
+    };
+    window.addEventListener("click", onWindowClick);
+    return () => window.removeEventListener("click", onWindowClick);
+  }, [open]);
+
+  return (
+    <div className="relative hidden md:block" data-import-menu>
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className={cx(
+          touchTarget(),
+          "items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700",
+          "hidden md:inline-flex hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        )}
+      >
+        {Upload ? <Upload size={16} /> : null}
+        Import
+        {ChevronDown ? <ChevronDown size={14} /> : null}
+      </button>
+      {open ? (
+      <div className="absolute right-0 top-[calc(100%+8px)] z-50 grid min-w-[196px] rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+        <a
+          href="/import"
+          onClick={() => setOpen(false)}
+          className={cx(
+            touchTarget(),
+            "inline-flex items-center rounded-lg px-3 text-sm font-medium text-slate-700 hover:bg-slate-100",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          )}
+        >
+          Import Workbook
+        </a>
+        <a
+          href="/import#summary"
+          onClick={() => setOpen(false)}
+          className={cx(
+            touchTarget(),
+            "inline-flex items-center rounded-lg px-3 text-sm font-medium text-slate-700 hover:bg-slate-100",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          )}
+        >
+          View Last Summary
+        </a>
+      </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AppHeader({ theme, onToggleTheme }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -363,7 +471,7 @@ function AppHeader() {
             )}
             aria-label="Go to dashboard"
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600 text-white">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 text-white">
               {LayoutDashboard ? <LayoutDashboard size={16} /> : "P"}
             </span>
             <span className="hidden sm:inline">Planner</span>
@@ -387,28 +495,31 @@ function AppHeader() {
           </button>
 
           <div className="ml-auto flex items-center gap-2">
-            <a
-              href="/import"
-              className={cx(
-                touchTarget(),
-                "hidden items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 md:inline-flex",
-                "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-              )}
-            >
-              {Upload ? <Upload size={16} /> : null}
-              Import
-            </a>
+            <HeaderImportMenu />
             <a
               href="/cvm"
               className={cx(
                 touchTarget(),
-                "inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white",
-                "hover:bg-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                "inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-[#0b0f13]",
+                "hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
               )}
             >
               {Plus ? <Plus size={16} /> : null}
               New Visit
             </a>
+            <button
+              type="button"
+              onClick={onToggleTheme}
+              aria-label="Toggle theme"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className={cx(
+                touchTarget(),
+                "inline-flex w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700",
+                "hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+              )}
+            >
+              {theme === "dark" ? (Sun ? <Sun size={17} /> : "☀") : Moon ? <Moon size={17} /> : "☾"}
+            </button>
             <button
               type="button"
               aria-label="User menu placeholder"
@@ -429,10 +540,10 @@ function AppHeader() {
   );
 }
 
-function AppShell({ children }) {
+function AppShell({ children, theme, onToggleTheme }) {
   return (
     <div className="min-h-screen overflow-x-hidden bg-[var(--bg)] text-slate-900 antialiased">
-      <AppHeader />
+      <AppHeader theme={theme} onToggleTheme={onToggleTheme} />
       <main className="mx-auto w-full max-w-[var(--layout-max)] space-y-6 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
     </div>
   );
@@ -470,7 +581,7 @@ function Skeleton({ className = "" }) {
   return <div className={cx("animate-pulse rounded-xl bg-slate-200", className)} />;
 }
 
-function StatCard({ href, icon: Icon, label, value, helper }) {
+function StatCard({ href, icon: Icon, label, value, helper, trend = "Stable" }) {
   return (
     <a
       href={href}
@@ -485,11 +596,23 @@ function StatCard({ href, icon: Icon, label, value, helper }) {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
           <p className="mt-2 text-3xl font-semibold leading-none text-slate-900">{value}</p>
         </div>
-        <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition group-hover:bg-sky-100 group-hover:text-sky-700">
+        <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition group-hover:bg-emerald-100 group-hover:text-emerald-700">
           {Icon ? <Icon size={18} /> : null}
         </span>
       </div>
-      <p className="mt-3 text-sm text-slate-500">{helper}</p>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">{helper}</p>
+        <span className="inline-flex min-h-7 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-600">
+          {trend === "Rising" ? (
+            TrendingUp ? <TrendingUp size={12} /> : "↗"
+          ) : Minus ? (
+            <Minus size={12} />
+          ) : (
+            "•"
+          )}
+          {trend}
+        </span>
+      </div>
     </a>
   );
 }
@@ -506,7 +629,7 @@ function EmptyState({ title, helper, ctaHref, ctaLabel }) {
         href={ctaHref}
         className={cx(
           touchTarget(),
-          "mt-4 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white hover:bg-sky-700",
+          "mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-medium text-[#0b0f13] hover:bg-emerald-600",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
         )}
       >
@@ -524,7 +647,7 @@ function StatusBadge({ status }) {
       ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
       : normalized === "cancelled"
         ? "bg-rose-50 text-rose-700 ring-rose-200"
-        : "bg-sky-50 text-sky-700 ring-sky-200";
+        : "bg-slate-100 text-slate-700 ring-slate-200";
 
   return (
     <span className={cx("inline-flex min-h-7 items-center rounded-full px-3 text-xs font-semibold ring-1 ring-inset", styles)}>
@@ -788,7 +911,7 @@ function ExportReportDialog({
                         touchTarget(),
                         "flex cursor-pointer items-center gap-2 rounded-xl border px-3",
                         settings.format === option.value
-                          ? "border-sky-300 bg-sky-50 text-sky-900"
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-800"
                           : "border-slate-300 bg-white text-slate-700"
                       )}
                     >
@@ -821,7 +944,7 @@ function ExportReportDialog({
                         touchTarget(),
                         "flex cursor-pointer items-center gap-2 rounded-xl border px-3",
                         settings.rangeMode === option.value
-                          ? "border-sky-300 bg-sky-50 text-sky-900"
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-800"
                           : "border-slate-300 bg-white text-slate-700"
                       )}
                     >
@@ -942,7 +1065,7 @@ function ExportReportDialog({
                       touchTarget(),
                       "flex items-center gap-2 rounded-xl border px-3",
                       selectedColumns.includes(column)
-                        ? "border-sky-300 bg-sky-50 text-sky-900"
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-800"
                         : "border-slate-300 bg-white text-slate-700"
                     )}
                   >
@@ -981,8 +1104,8 @@ function ExportReportDialog({
               disabled={isExporting || recordCount === 0 || selectedColumns.length === 0}
               className={cx(
                 touchTarget(),
-                "inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white",
-                "hover:bg-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+                "inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-[#0b0f13]",
+                "hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
                 "disabled:cursor-not-allowed disabled:opacity-60"
               )}
             >
@@ -1005,7 +1128,7 @@ function ExportReportDialog({
   );
 }
 
-function VisitsTrendChart({ series, loading }) {
+function VisitsTrendChart({ series, loading, theme }) {
   const points = useMemo(() => {
     const safe = Array.isArray(series) && series.length > 0 ? series : [];
     const maxY = Math.max(
@@ -1052,7 +1175,7 @@ function VisitsTrendChart({ series, loading }) {
         right={
           <span className="inline-flex items-center gap-3 text-xs text-slate-500">
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> Planned
+              <span className="h-2.5 w-2.5 rounded-full bg-slate-400" /> Planned
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Completed
@@ -1071,7 +1194,10 @@ function VisitsTrendChart({ series, loading }) {
           ctaLabel="Import Workbook"
         />
       ) : (
-        <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+        <div
+          className="overflow-x-auto rounded-xl border border-slate-100 bg-slate-50/70 p-2 shadow-inner"
+          style={{ WebkitOverflowScrolling: "touch" }}
+        >
           <svg
             viewBox={`0 0 ${points.width} ${points.height}`}
             className="h-56 w-full min-w-[580px]"
@@ -1080,21 +1206,28 @@ function VisitsTrendChart({ series, loading }) {
           >
             {points.ticks.map((tick, idx) => (
               <g key={idx}>
-                <line x1="34" x2={points.width - 34} y1={tick.y} y2={tick.y} stroke="#e2e8f0" strokeDasharray="4 4" />
-                <text x="6" y={tick.y + 4} fill="#64748b" fontSize="11">
+                <line
+                  x1="34"
+                  x2={points.width - 34}
+                  y1={tick.y}
+                  y2={tick.y}
+                  stroke={theme === "dark" ? "rgba(255,255,255,0.12)" : "#e2e8f0"}
+                  strokeDasharray="4 4"
+                />
+                <text x="6" y={tick.y + 4} fill={theme === "dark" ? "#9aa3b2" : "#64748b"} fontSize="11">
                   {tick.value}
                 </text>
               </g>
             ))}
-            <polyline fill="none" stroke="#0ea5e9" strokeWidth="3" points={points.plannedLine} />
-            <polyline fill="none" stroke="#10b981" strokeWidth="3" points={points.completedLine} />
+            <polyline fill="none" stroke={theme === "dark" ? "#8a94a8" : "#64748b"} strokeWidth="3" points={points.plannedLine} />
+            <polyline fill="none" stroke="#22c55e" strokeWidth="3" points={points.completedLine} />
             {points.safe.map((item, idx) => {
               const x = 34 + (idx * (points.width - 68)) / Math.max(1, points.safe.length - 1);
               const showLabel = idx % 2 === 0 || idx === points.safe.length - 1;
               return (
                 <g key={item.label + idx}>
                   {showLabel ? (
-                    <text x={x} y={points.height - 6} textAnchor="middle" fill="#64748b" fontSize="11">
+                    <text x={x} y={points.height - 6} textAnchor="middle" fill={theme === "dark" ? "#9aa3b2" : "#64748b"} fontSize="11">
                       {item.label}
                     </text>
                   ) : null}
@@ -1337,6 +1470,39 @@ function UpcomingEventsTable({ events, loading, onToast }) {
 function DashboardApp({ data }) {
   const [loading, setLoading] = useState(false);
   const { toasts, push, dismiss } = useToasts();
+  const { theme, toggleTheme } = useThemePreference();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("debug_overflow")) return undefined;
+
+    const scanOverflow = () => {
+      const viewport = document.documentElement.clientWidth;
+      const offenders = [];
+      document.querySelectorAll("body *").forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > viewport + 1 || rect.right > viewport + 1 || rect.left < -1) {
+          offenders.push({
+            node: el.tagName + (el.className ? `.${String(el.className).replace(/\s+/g, ".")}` : ""),
+            width: Math.round(rect.width),
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+          });
+        }
+      });
+      if (offenders.length) {
+        console.group("Overflow debug");
+        console.table(offenders.slice(0, 24));
+        console.groupEnd();
+      } else {
+        console.log("Overflow debug: no wide elements found.");
+      }
+    };
+
+    scanOverflow();
+    window.addEventListener("resize", scanOverflow);
+    return () => window.removeEventListener("resize", scanOverflow);
+  }, []);
 
   const counts = data.counts || {};
   const settings = data.settings || {};
@@ -1348,6 +1514,7 @@ function DashboardApp({ data }) {
       label: "Customers",
       value: counts.customers ?? 0,
       helper: (counts.customers || 0) > 0 ? "active records" : "no customers yet",
+      trend: (counts.customers || 0) > 0 ? "Rising" : "Stable",
       href: "/customers",
       icon: Users,
     },
@@ -1355,6 +1522,7 @@ function DashboardApp({ data }) {
       label: "Visit Entries",
       value: counts.cvm_entries ?? 0,
       helper: "tracked in CVM",
+      trend: (counts.cvm_entries || 0) > 0 ? "Rising" : "Stable",
       href: "/cvm",
       icon: CalendarCheck2,
     },
@@ -1362,13 +1530,14 @@ function DashboardApp({ data }) {
       label: "Calendar Year",
       value: settings.calendar_year ?? "-",
       helper: `week starts ${settings.week_start_day || "monday"}`,
+      trend: "Stable",
       href: "/calendar",
       icon: CalendarDays,
     },
   ];
 
   return (
-    <AppShell>
+    <AppShell theme={theme} onToggleTheme={toggleTheme}>
       <CardSection>
         <PageHeader
           title="Planner Dashboard"
@@ -1396,7 +1565,7 @@ function DashboardApp({ data }) {
 
       <div className="grid gap-6 md:grid-cols-12">
         <div className="md:col-span-12 lg:col-span-5">
-          <VisitsTrendChart series={visitsByMonth} loading={loading} />
+          <VisitsTrendChart series={visitsByMonth} loading={loading} theme={theme} />
         </div>
         <div className="md:col-span-12 lg:col-span-7">
           <UpcomingEventsTable events={upcoming} loading={loading} onToast={push} />

@@ -5,7 +5,7 @@
 {% endblock %}
 
 {% block page_header %}
-<section class="card page-header">
+<section class="section-card page-header">
   <div>
     <h1 class="page-header-title">CVM {{ year }}</h1>
     <p class="page-header-subtitle">Edit month dates, mark completion manually, and track notes per customer.</p>
@@ -17,7 +17,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="card cvm-page">
+<section class="section-card cvm-page">
   <div class="cvm-header-bar">
     <form method="get" action="/cvm" class="cvm-control-row" autocomplete="off">
       <div class="cvm-control">
@@ -38,16 +38,24 @@
       <button type="submit" class="button-primary">Load CVM</button>
 
       <div class="cvm-export-wrap" aria-label="Export current CVM table">
-        <button id="cvm-export-csv" type="button" class="button-secondary">Export CSV</button>
-        <button id="cvm-export-xlsx" type="button" class="button-secondary">Export XLSX</button>
+        <details class="inline-dropdown">
+          <summary class="button-secondary">Export</summary>
+          <div class="inline-dropdown-panel" role="menu" aria-label="Export menu">
+            <button id="cvm-export-csv" type="button" role="menuitem">Export CSV</button>
+            <button id="cvm-export-xlsx" type="button" role="menuitem">Export XLSX</button>
+          </div>
+        </details>
       </div>
     </form>
   </div>
 </section>
 
-<section class="card">
-  <div id="cvm-grid-wrap" class="data-grid-wrap">
-    <table id="cvm-table" class="cvm-table" aria-label="CVM editable table">
+<section class="section-card">
+  <div class="grid-scroll-frame">
+    <div id="cvm-shadow-left" class="scroll-shadow left" aria-hidden="true"></div>
+    <div id="cvm-shadow-right" class="scroll-shadow right" aria-hidden="true"></div>
+    <div id="cvm-grid-wrap" class="data-grid-wrap">
+      <table id="cvm-table" class="cvm-table" aria-label="CVM editable table">
       <thead>
         <tr>
           <th class="sticky-col-1">Cust Code</th>
@@ -89,7 +97,6 @@
               <input type="hidden" name="year" value="{{ year }}" />
               <input type="hidden" name="territory_id" value="{{ territory_id or '' }}" />
               <textarea name="notes" rows="3" placeholder="Notes/Comments">{{ r.cvm_notes or '' }}</textarea>
-              <button type="submit" class="cvm-inline-save button-secondary">Save</button>
             </form>
           </td>
           <td>{{ r.last_completed or '' }}</td>
@@ -109,7 +116,6 @@
                 <input type="checkbox" name="completed_manual" value="1" {% if cell and cell.completed_manual %}checked{% endif %} />
                 Done
               </label>
-              <button type="submit" class="cvm-inline-save button-secondary">Save</button>
             </form>
           </td>
           {% endfor %}
@@ -120,7 +126,8 @@
         </tr>
         {% endfor %}
       </tbody>
-    </table>
+      </table>
+    </div>
   </div>
 </section>
 
@@ -132,6 +139,10 @@
     const exportCsvButton = document.getElementById("cvm-export-csv");
     const exportXlsxButton = document.getElementById("cvm-export-xlsx");
     const toastStack = document.getElementById("cvm-toast-stack");
+    const gridWrap = document.getElementById("cvm-grid-wrap");
+    const shadowLeft = document.getElementById("cvm-shadow-left");
+    const shadowRight = document.getElementById("cvm-shadow-right");
+    const exportMenus = Array.from(document.querySelectorAll(".inline-dropdown"));
 
     const pushToast = (message, type = "success") => {
       if (!toastStack || !message) return;
@@ -150,12 +161,49 @@
 
     const timers = new Map();
 
+    const updateScrollShadows = () => {
+      if (!gridWrap || !shadowLeft || !shadowRight) return;
+      const leftVisible = gridWrap.scrollLeft > 2;
+      const rightVisible = gridWrap.scrollLeft + gridWrap.clientWidth < gridWrap.scrollWidth - 2;
+      shadowLeft.classList.toggle("is-visible", leftVisible);
+      shadowRight.classList.toggle("is-visible", rightVisible);
+    };
+
+    if (gridWrap) {
+      updateScrollShadows();
+      gridWrap.addEventListener("scroll", updateScrollShadows, { passive: true });
+      window.addEventListener("resize", updateScrollShadows);
+      window.setTimeout(updateScrollShadows, 80);
+    }
+
+    if (exportMenus.length) {
+      window.addEventListener("click", (event) => {
+        exportMenus.forEach((menu) => {
+          if (!menu.contains(event.target)) {
+            menu.removeAttribute("open");
+          }
+        });
+      });
+    }
+
     const setRowStatus = (rowId, state, label) => {
       const status = document.querySelector(`[data-row-id="${rowId}"] [data-row-status]`);
+      const row = document.querySelector(`tr[data-row-id="${rowId}"]`);
       if (!status) return;
       status.classList.remove("is-dirty", "is-saving", "is-error");
+      if (row) {
+        row.classList.remove("is-editing", "has-error");
+      }
       if (state) {
         status.classList.add(state);
+      }
+      if (row) {
+        if (state === "is-dirty" || state === "is-saving") {
+          row.classList.add("is-editing");
+        }
+        if (state === "is-error") {
+          row.classList.add("has-error");
+        }
       }
       status.textContent = label;
     };
@@ -301,12 +349,14 @@
     if (exportCsvButton) {
       exportCsvButton.addEventListener("click", () => {
         downloadCsv(collectCvmRows());
+        exportMenus.forEach((menu) => menu.removeAttribute("open"));
       });
     }
 
     if (exportXlsxButton) {
       exportXlsxButton.addEventListener("click", () => {
         downloadXlsx(collectCvmRows());
+        exportMenus.forEach((menu) => menu.removeAttribute("open"));
       });
     }
   })();

@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#eef3fb" />
     <title>Calendar Planner</title>
+    <script>
+      (() => {
+        const key = "planner.theme";
+        let stored = null;
+        try {
+          stored = window.localStorage.getItem(key);
+        } catch (_) {}
+        const theme = stored === "dark" || stored === "light" ? stored : "dark";
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.classList.toggle("dark", theme === "dark");
+      })();
+    </script>
     <link rel="stylesheet" href="/static/styles.css" />
     {% block head_extra %}{% endblock %}
   </head>
@@ -38,8 +50,18 @@
           </button>
 
           <div class="header-actions">
-            <a href="/import" class="button-secondary action-button header-import">Import</a>
+            <details class="import-menu header-import">
+              <summary class="button-secondary action-button import-trigger">Import</summary>
+              <div class="import-menu-panel" role="menu" aria-label="Import options">
+                <a href="/import" role="menuitem">Import Workbook</a>
+                <a href="/import#summary" role="menuitem">View Last Summary</a>
+              </div>
+            </details>
             <a href="/cvm" class="button-primary action-button header-new-visit">New Visit</a>
+            <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Toggle theme" title="Toggle theme">
+              <span class="icon-moon" aria-hidden="true">&#9789;</span>
+              <span class="icon-sun" aria-hidden="true">&#9728;</span>
+            </button>
             <button type="button" class="user-chip" aria-label="User menu placeholder">A</button>
           </div>
         </div>
@@ -61,7 +83,7 @@
             <a href="/import" class="nav-link" data-nav-link>Import Workbook</a>
           </nav>
           <div class="sheet-actions">
-            <a href="/import" class="button-secondary action-button">Import</a>
+            <a href="/import" class="button-secondary action-button">Import Workbook</a>
             <a href="/cvm" class="button-primary action-button">New Visit</a>
           </div>
         </aside>
@@ -118,6 +140,62 @@
             close();
           }
         });
+
+        const importMenu = document.querySelector(".import-menu");
+        if (importMenu) {
+          window.addEventListener("click", (event) => {
+            if (!importMenu.contains(event.target)) {
+              importMenu.removeAttribute("open");
+            }
+          });
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        if (params.has("debug_overflow")) {
+          const scanOverflow = () => {
+            const viewport = document.documentElement.clientWidth;
+            const offenders = [];
+            document.querySelectorAll("body *").forEach((el) => {
+              const rect = el.getBoundingClientRect();
+              if (rect.width > viewport + 1 || rect.right > viewport + 1 || rect.left < -1) {
+                offenders.push({ node: el, width: Math.round(rect.width), left: Math.round(rect.left), right: Math.round(rect.right) });
+              }
+            });
+            if (offenders.length) {
+              console.group("Overflow debug");
+              offenders.slice(0, 24).forEach((item) => console.log(item));
+              console.groupEnd();
+            } else {
+              console.log("Overflow debug: no wide elements found.");
+            }
+          };
+          window.addEventListener("load", scanOverflow);
+          window.addEventListener("resize", scanOverflow);
+        }
+
+        const themeToggle = document.getElementById("theme-toggle");
+        const themeKey = "planner.theme";
+        const applyTheme = (theme) => {
+          const nextTheme = theme === "dark" ? "dark" : "light";
+          document.documentElement.setAttribute("data-theme", nextTheme);
+          document.documentElement.classList.toggle("dark", nextTheme === "dark");
+          if (themeToggle) {
+            themeToggle.setAttribute("aria-label", nextTheme === "dark" ? "Switch to light mode" : "Switch to dark mode");
+            themeToggle.setAttribute("title", nextTheme === "dark" ? "Switch to light mode" : "Switch to dark mode");
+          }
+        };
+
+        if (themeToggle) {
+          themeToggle.addEventListener("click", () => {
+            const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+            const next = current === "dark" ? "light" : "dark";
+            try {
+              window.localStorage.setItem(themeKey, next);
+            } catch (_) {}
+            applyTheme(next);
+          });
+          applyTheme(document.documentElement.getAttribute("data-theme"));
+        }
       })();
     </script>
   </body>

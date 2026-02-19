@@ -1,48 +1,86 @@
 {% extends "base.html" %}
+
+{% block page_header %}
+<section class="section-card page-header">
+  <div>
+    <h1 class="page-header-title">Customers</h1>
+    <p class="page-header-subtitle">Manage your customer master list, territory assignment, and profile details.</p>
+  </div>
+  <div class="page-header-actions">
+    <a href="#add-customer" class="button-primary">Add Customer</a>
+  </div>
+</section>
+{% endblock %}
+
 {% block content %}
-<section class="card">
-  <h1>Customers</h1>
-  {% set values = form_values if form_values is defined else {} %}
-  {% if form_error %}
-  <p class="form-error">{{ form_error }}</p>
-  {% endif %}
-  <form method="post" action="/customers" class="grid">
-    <input name="cust_code" placeholder="Cust Code" value="{{ values.get('cust_code', '') }}" required />
-    <input name="name" placeholder="Customer Name" value="{{ values.get('name', '') }}" required />
-    <input name="trade_name" placeholder="Trade Name" value="{{ values.get('trade_name', '') }}" />
-    <input name="territory_name" placeholder="Territory (e.g. NSW (North))" value="{{ values.get('territory_name', '') }}" />
-    <input name="group_name" placeholder="Group" value="{{ values.get('group_name', '') }}" />
-    <input name="iws_code" placeholder="IWS Code" value="{{ values.get('iws_code', '') }}" />
-    <button type="submit">Add Customer</button>
-  </form>
+{% set values = form_values if form_values is defined else {} %}
+
+<section class="section-card customers-layout" id="add-customer">
+  <details class="collapse-wrap" {% if form_error %}open{% endif %}>
+    <summary>
+      <span>Add Customer</span>
+      <span class="subtle">Create a customer record with territory and grouping details.</span>
+    </summary>
+    <div class="collapse-content">
+      {% if form_error %}
+      <p class="form-error">{{ form_error }}</p>
+      {% endif %}
+      <form method="post" action="/customers" class="grid">
+        <input name="cust_code" placeholder="Cust Code" value="{{ values.get('cust_code', '') }}" required />
+        <input name="name" placeholder="Customer Name" value="{{ values.get('name', '') }}" required />
+        <input name="trade_name" placeholder="Trade Name" value="{{ values.get('trade_name', '') }}" />
+        <input name="territory_name" placeholder="Territory (e.g. NSW (North))" value="{{ values.get('territory_name', '') }}" />
+        <input name="group_name" placeholder="Group" value="{{ values.get('group_name', '') }}" />
+        <input name="iws_code" placeholder="IWS Code" value="{{ values.get('iws_code', '') }}" />
+        <button type="submit">Add Customer</button>
+      </form>
+    </div>
+  </details>
 </section>
 
-<section class="card">
-  <table>
-    <thead>
-      <tr>
-        <th>Cust Code</th><th>Name</th><th>Trade Name</th><th>Territory</th><th>Group</th><th>IWS</th><th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in customers %}
-      <tr>
-        <td>{{ c.cust_code }}</td>
-        <td>{{ c.name }}</td>
-        <td>{{ c.trade_name or "" }}</td>
-        <td>{{ c.territory }}</td>
-        <td>{{ c.group_name or "" }}</td>
-        <td>{{ c.iws_code or "" }}</td>
-        <td>
-          <form method="post" action="/customers/{{ c.id }}/delete" class="inline-actions" onsubmit="return confirm('Delete this customer and related data?');">
-            <button type="submit" class="button-danger">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7">No customers yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<section class="section-card">
+  <div class="section-header">
+    <div>
+      <h2 class="section-title">Customer Directory</h2>
+      <p class="subtle">{{ customers|length }} customer{% if customers|length != 1 %}s{% endif %} in this workspace.</p>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="customers-table">
+      <thead>
+        <tr>
+          <th>Cust Code</th><th>Name</th><th>Trade Name</th><th>Territory</th><th>Group</th><th>IWS</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in customers %}
+        <tr>
+          <td>{{ c.cust_code }}</td>
+          <td>{{ c.name }}</td>
+          <td>{{ c.trade_name or "" }}</td>
+          <td>{{ c.territory }}</td>
+          <td>{{ c.group_name or "" }}</td>
+          <td>{{ c.iws_code or "" }}</td>
+          <td>
+            <form method="post" action="/customers/{{ c.id }}/delete" class="inline-actions" onsubmit="return confirm('Delete this customer and related data?');">
+              <button type="submit" class="button-soft-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr class="table-empty-row">
+          <td colspan="7">
+            <div class="empty-state">
+              <span class="empty-state-icon">C</span>
+              <h3>No customers yet</h3>
+              <p>Add your first customer to begin planning visits and CVM entries.</p>
+              <a href="#add-customer" class="button-primary">Create Customer</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}

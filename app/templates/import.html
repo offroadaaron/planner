@@ -1,9 +1,39 @@
 {% extends "base.html" %}
+
+{% block page_header %}
+<section class="section-card page-header">
+  <div>
+    <h1 class="page-header-title">Import Workbook</h1>
+    <p class="page-header-subtitle">Use a 3-step flow: upload, preview all changes, then apply.</p>
+  </div>
+</section>
+{% endblock %}
+
 {% block content %}
-<section class="card">
-  <h1>Import Workbook (.xlsm / .xlsx)</h1>
-  <p class="subtle">Run a preview first, then apply if the summary and row-level issues look right.</p>
-  <form method="post" action="/import/workbook" enctype="multipart/form-data" class="grid">
+{% set preview_ready = result and result.dry_run %}
+{% set apply_ready = preview_ready and result.can_apply %}
+{% set applied_mode = result and (not result.dry_run) %}
+
+<section class="section-card import-layout">
+  <div class="step-track">
+    <article class="step-chip {% if not result %}is-active{% endif %}">
+      <span class="step-index">1</span>
+      <strong>Upload</strong>
+      <p>Select workbook and import options.</p>
+    </article>
+    <article class="step-chip {% if preview_ready %}is-active{% endif %}">
+      <span class="step-index">2</span>
+      <strong>Preview</strong>
+      <p>Dry run and validate warnings/errors.</p>
+    </article>
+    <article class="step-chip {% if applied_mode %}is-active{% endif %}">
+      <span class="step-index">3</span>
+      <strong>Apply</strong>
+      <p>Commit changes once preview is accepted.</p>
+    </article>
+  </div>
+
+  <form method="post" action="/import/workbook" enctype="multipart/form-data" class="toolbar">
     <input type="file" name="workbook_file" accept=".xlsm,.xlsx,.xltm" required />
     <input type="number" min="2000" max="2100" name="year_override" value="{{ year_override }}" placeholder="Optional year override" />
     <select name="upsert_policy" required>
@@ -21,59 +51,85 @@
       <option value="error" {% if duplicate_policy == 'error' %}selected{% endif %}>Duplicates: Error (skip + block apply)</option>
     </select>
     <div class="import-actions">
-      <button type="submit" name="import_mode" value="preview">Preview (Dry Run)</button>
-      <button type="submit" name="import_mode" value="apply" class="button-secondary">Apply Import</button>
+      <button type="submit" name="import_mode" value="preview" class="button-secondary">Preview</button>
+      <button
+        type="submit"
+        name="import_mode"
+        value="apply"
+        class="{% if apply_ready %}button-primary{% else %}button-secondary{% endif %}"
+        {% if not apply_ready %}disabled title="Run a successful preview first"{% endif %}
+      >
+        Apply Import
+      </button>
     </div>
   </form>
-  <p class="subtle">Current mode: {{ import_mode }}. Preview calculates all changes and then rolls back the transaction.</p>
+
+  <p class="subtle">Current mode: {{ import_mode }}. Preview calculates all changes and rolls back transaction writes.</p>
   {% if uploaded_name %}
   <p class="subtle">Last upload: {{ uploaded_name }}</p>
   {% endif %}
 </section>
 
 {% if error %}
-<section class="card import-error">
+<section class="section-card import-error">
   <h2>Import Error</h2>
   <p>{{ error }}</p>
 </section>
 {% endif %}
 
 {% if result %}
-<section class="card">
-  <h2>Import Summary</h2>
-  {% if result.dry_run %}
-  <p class="subtle"><strong>Preview only:</strong> no data was committed.</p>
-  {% endif %}
-  <table>
-    <tbody>
-      <tr><th>File</th><td>{{ result.filename }}</td></tr>
-      <tr><th>Mode</th><td>{% if result.dry_run %}Preview (Dry Run){% else %}Apply{% endif %}</td></tr>
-      <tr><th>Upsert Policy</th><td>{{ result.upsert_policy }}</td></tr>
-      <tr><th>Validation Mode</th><td>{{ result.validation_mode }}</td></tr>
-      <tr><th>Duplicate Policy</th><td>{{ result.duplicate_policy }}</td></tr>
-      <tr><th>Calendar Year</th><td>{{ result.calendar_year }}</td></tr>
-      <tr><th>Territories Created</th><td>{{ result.territories_created }}</td></tr>
-      <tr><th>Customers Created</th><td>{{ result.customers_created }}</td></tr>
-      <tr><th>Customers Updated</th><td>{{ result.customers_updated }}</td></tr>
-      <tr><th>Customers Skipped Existing</th><td>{{ result.customers_skipped_existing }}</td></tr>
-      <tr><th>Stores Created</th><td>{{ result.stores_created }}</td></tr>
-      <tr><th>Stores Updated</th><td>{{ result.stores_updated }}</td></tr>
-      <tr><th>Stores Skipped Existing</th><td>{{ result.stores_skipped_existing }}</td></tr>
-      <tr><th>Products Created</th><td>{{ result.products_created }}</td></tr>
-      <tr><th>Products Updated</th><td>{{ result.products_updated }}</td></tr>
-      <tr><th>Products Skipped Existing</th><td>{{ result.products_skipped_existing }}</td></tr>
-      <tr><th>CVM Entries Upserted</th><td>{{ result.cvm_entries_upserted }}</td></tr>
-      <tr><th>CVM Entries Skipped Existing</th><td>{{ result.cvm_entries_skipped_existing }}</td></tr>
-      <tr><th>Duplicate Rows Skipped</th><td>{{ result.duplicate_rows_skipped }}</td></tr>
-      <tr><th>Warnings</th><td>{{ result.warning_count }}</td></tr>
-      <tr><th>Errors</th><td>{{ result.error_count }}</td></tr>
-      <tr><th>Can Apply</th><td>{% if result.can_apply %}Yes{% else %}No{% endif %}</td></tr>
-    </tbody>
-  </table>
+<section class="section-card" id="summary">
+  <div class="section-header">
+    <div>
+      <h2 class="section-title">Import Summary</h2>
+      {% if result.dry_run %}
+      <p class="subtle"><strong>Preview only:</strong> no data was committed.</p>
+      {% endif %}
+    </div>
+    <div>
+      {% if result.can_apply %}
+      <span class="badge completed">Preview Ready</span>
+      {% else %}
+      <span class="badge planned">Review Required</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="import-summary-grid">
+    <article class="import-summary-item"><p>Territories Created</p><strong>{{ result.territories_created }}</strong></article>
+    <article class="import-summary-item"><p>Customers Created</p><strong>{{ result.customers_created }}</strong></article>
+    <article class="import-summary-item"><p>Customers Updated</p><strong>{{ result.customers_updated }}</strong></article>
+    <article class="import-summary-item"><p>Products Created</p><strong>{{ result.products_created }}</strong></article>
+    <article class="import-summary-item"><p>Products Updated</p><strong>{{ result.products_updated }}</strong></article>
+    <article class="import-summary-item"><p>CVM Entries Upserted</p><strong>{{ result.cvm_entries_upserted }}</strong></article>
+    <article class="import-summary-item"><p>Warnings</p><strong>{{ result.warning_count }}</strong></article>
+    <article class="import-summary-item"><p>Errors</p><strong>{{ result.error_count }}</strong></article>
+  </div>
+
+  <div class="table-scroll">
+    <table>
+      <tbody>
+        <tr><th>File</th><td>{{ result.filename }}</td></tr>
+        <tr><th>Mode</th><td>{% if result.dry_run %}Preview (Dry Run){% else %}Apply{% endif %}</td></tr>
+        <tr><th>Upsert Policy</th><td>{{ result.upsert_policy }}</td></tr>
+        <tr><th>Validation Mode</th><td>{{ result.validation_mode }}</td></tr>
+        <tr><th>Duplicate Policy</th><td>{{ result.duplicate_policy }}</td></tr>
+        <tr><th>Calendar Year</th><td>{{ result.calendar_year }}</td></tr>
+        <tr><th>Customers Skipped Existing</th><td>{{ result.customers_skipped_existing }}</td></tr>
+        <tr><th>Stores Created</th><td>{{ result.stores_created }}</td></tr>
+        <tr><th>Stores Updated</th><td>{{ result.stores_updated }}</td></tr>
+        <tr><th>Stores Skipped Existing</th><td>{{ result.stores_skipped_existing }}</td></tr>
+        <tr><th>Products Skipped Existing</th><td>{{ result.products_skipped_existing }}</td></tr>
+        <tr><th>CVM Entries Skipped Existing</th><td>{{ result.cvm_entries_skipped_existing }}</td></tr>
+        <tr><th>Duplicate Rows Skipped</th><td>{{ result.duplicate_rows_skipped }}</td></tr>
+        <tr><th>Can Apply</th><td>{% if result.can_apply %}Yes{% else %}No{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </div>
 </section>
 
 {% if result.blockers %}
-<section class="card import-error">
+<section class="section-card import-error">
   <h2>Apply Blockers</h2>
   <ul>
     {% for b in result.blockers %}
@@ -84,7 +140,7 @@
 {% endif %}
 
 {% if result.warnings %}
-<section class="card import-warning">
+<section class="section-card import-warning">
   <h2>Warnings</h2>
   <ul>
     {% for w in result.warnings %}
@@ -95,7 +151,7 @@
 {% endif %}
 
 {% if result.row_issues %}
-<section class="card table-scroll">
+<section class="section-card table-scroll">
   <h2>Row-Level Issues</h2>
   <table class="import-issues-table">
     <thead>

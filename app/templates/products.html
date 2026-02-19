@@ -1,78 +1,93 @@
 {% extends "base.html" %}
-{% block content %}
-<section class="card">
-  <h1>Products</h1>
-  <form method="post" action="/products" class="grid">
-    <input name="product_name" placeholder="Product" required />
-    <select name="customer_id" required>
-      <option value="">Customer</option>
-      {% for c in customers %}
-      <option value="{{ c.id }}">{{ c.cust_code }} - {{ c.name }} ({{ c.territory }})</option>
-      {% endfor %}
-    </select>
-    <select name="action">
-      <option value="">Action</option>
-      {% for a in actions %}
-      <option value="{{ a }}">{{ a }}</option>
-      {% endfor %}
-    </select>
-    <select name="status">
-      <option value="">Status</option>
-      {% for s in statuses %}
-      <option value="{{ s }}">{{ s }}</option>
-      {% endfor %}
-    </select>
-    <input name="next_action" placeholder="Next Action" />
-    <input type="date" name="last_contact" placeholder="Last Contact" />
-    <input name="notes" placeholder="Notes" />
-    <button type="submit">Add Product</button>
-  </form>
-  <p class="subtle">Last Visit is pulled automatically from completed planner visits.</p>
+
+{% block page_header %}
+<section class="section-card page-header">
+  <div>
+    <h1 class="page-header-title">Products</h1>
+    <p class="page-header-subtitle">Track customer products, actions, status, and follow-up contact activity.</p>
+  </div>
 </section>
+{% endblock %}
 
-<section class="card">
-  <h2>Filter Products</h2>
-  <form method="get" action="/products" class="filter-grid">
-    <input name="q" value="{{ filters.q }}" placeholder="Search product, customer, code or notes" />
-
-    <select name="customer_id">
-      <option value="">All Customers</option>
-      {% for c in customers %}
-      <option value="{{ c.id }}" {% if filters.customer_id == c.id %}selected{% endif %}>{{ c.cust_code }} - {{ c.name }}</option>
-      {% endfor %}
-    </select>
-
-    <select name="territory">
-      <option value="">All Territories</option>
-      {% for t in territories %}
-      <option value="{{ t }}" {% if filters.territory == t %}selected{% endif %}>{{ t }}</option>
-      {% endfor %}
-    </select>
-
-    <select name="action">
-      <option value="">All Actions</option>
-      {% for a in actions %}
-      <option value="{{ a }}" {% if filters.action == a %}selected{% endif %}>{{ a }}</option>
-      {% endfor %}
-    </select>
-
-    <select name="status">
-      <option value="">All Statuses</option>
-      {% for s in statuses %}
-      <option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>
-      {% endfor %}
-    </select>
-
-    <div class="filter-actions">
-      <button type="submit">Apply Filters</button>
-      <a class="button-secondary" href="/products">Clear</a>
+{% block content %}
+<section class="section-card products-layout">
+  <div class="section-header">
+    <div>
+      <h2 class="section-title">Add and Filter Products</h2>
+      <p class="subtle">Last Visit is pulled automatically from completed planner visits.</p>
     </div>
-  </form>
+  </div>
+
+  <div class="product-toolbar-grid">
+    <form method="post" action="/products" class="toolbar">
+      <input name="product_name" placeholder="Product" required />
+      <select name="customer_id" required>
+        <option value="">Customer</option>
+        {% for c in customers %}
+        <option value="{{ c.id }}">{{ c.cust_code }} - {{ c.name }} ({{ c.territory }})</option>
+        {% endfor %}
+      </select>
+      <select name="action">
+        <option value="">Action</option>
+        {% for a in actions %}
+        <option value="{{ a }}">{{ a }}</option>
+        {% endfor %}
+      </select>
+      <select name="status">
+        <option value="">Status</option>
+        {% for s in statuses %}
+        <option value="{{ s }}">{{ s }}</option>
+        {% endfor %}
+      </select>
+      <input name="next_action" placeholder="Next Action" />
+      <input type="date" name="last_contact" placeholder="Last Contact" />
+      <input name="notes" placeholder="Notes" />
+      <button type="submit">Add Product</button>
+    </form>
+
+    <form method="get" action="/products" class="toolbar">
+      <input name="q" value="{{ filters.q }}" placeholder="Search product, customer, code or notes" />
+
+      <select name="customer_id">
+        <option value="">All Customers</option>
+        {% for c in customers %}
+        <option value="{{ c.id }}" {% if filters.customer_id == c.id %}selected{% endif %}>{{ c.cust_code }} - {{ c.name }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="territory">
+        <option value="">All Territories</option>
+        {% for t in territories %}
+        <option value="{{ t }}" {% if filters.territory == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="action">
+        <option value="">All Actions</option>
+        {% for a in actions %}
+        <option value="{{ a }}" {% if filters.action == a %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="status">
+        <option value="">All Statuses</option>
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+
+      <div class="filter-actions">
+        <button type="submit">Apply Filters</button>
+        <a class="button-secondary" href="/products">Clear</a>
+      </div>
+    </form>
+  </div>
+
   <p class="subtle">Showing {{ products|length }} result{% if products|length != 1 %}s{% endif %}</p>
 </section>
 
-<section class="card table-scroll">
-  <table class="matrix-table">
+<section class="section-card table-scroll">
+  <table class="matrix-table is-dense">
     <thead>
       <tr>
         <th>Product</th>
@@ -128,7 +143,15 @@
         </form>
       </tr>
       {% else %}
-      <tr><td colspan="10">No products yet.</td></tr>
+      <tr class="table-empty-row">
+        <td colspan="10">
+          <div class="empty-state">
+            <span class="empty-state-icon">P</span>
+            <h3>No products yet</h3>
+            <p>Add a product above and assign it to a customer to start tracking actions.</p>
+          </div>
+        </td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>

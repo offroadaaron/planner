@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Planner Dashboard</title>
     <meta name="theme-color" content="#eef3fb" />
+    <script>
+      (() => {
+        const key = "planner.theme";
+        let stored = null;
+        try {
+          stored = window.localStorage.getItem(key);
+        } catch (_) {}
+        const theme = stored === "dark" || stored === "light" ? stored : "dark";
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.classList.toggle("dark", theme === "dark");
+      })();
+    </script>
     <link rel="stylesheet" href="/static/styles.css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script>

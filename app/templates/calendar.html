@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block page_header %}
-<section class="card page-header">
+<section class="section-card page-header">
   <div>
     <h1 class="page-header-title">12-Month Planner</h1>
     <p class="page-header-subtitle">Review planned and completed visits by month, territory, and week start.</p>
@@ -14,7 +14,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="card planner-page">
+<section class="section-card planner-page">
   <form method="get" action="/calendar" class="planner-toolbar" autocomplete="off">
     <div class="planner-headline">
       <div class="planner-month-switch" aria-label="Month navigation">
@@ -94,7 +94,7 @@
   </div>
 </section>
 
-<section class="card">
+<section class="section-card">
   <div class="planner-scroll" id="planner-scroll">
     <div class="planner-grid planner-head">
       {% for day_name in weekday_names %}
@@ -110,7 +110,7 @@
       {% set total_items = planned_items|length + completed_items|length %}
       {% set shown_count = (1 if planned_items|length > 0 else 0) + (1 if completed_items|length > 0 else 0) %}
       {% set more_count = total_items - shown_count %}
-      <article class="planner-day {% if not day['in_month'] %}out-month{% endif %}{% if day['date'] == today %} today{% endif %}">
+      <article class="planner-day {% if not day['in_month'] %}out-month{% endif %}{% if day['date'] == today %} today{% endif %}{% if day['in_month'] and total_items > 0 %} has-activity{% endif %}">
         <div class="planner-day-title">
           <strong>{{ day['date'].strftime('%d %b') }}</strong>
         </div>
@@ -134,7 +134,7 @@
           {% endif %}
         </div>
         {% else %}
-        <p class="day-empty">No visits</p>
+        <p class="day-empty">No activity</p>
         {% endif %}
 
         <button
@@ -146,7 +146,8 @@
           data-completed='{{ completed_items | tojson | forceescape }}'
           aria-label="View {{ day['date'].strftime('%d %b %Y') }} details"
         >
-          View
+          <span class="sr-only">Open day details</span>
+          <span aria-hidden="true">&#8250;</span>
         </button>
         {% endif %}
       </article>
