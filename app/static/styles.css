@@ -2033,3 +2033,244 @@ button.button-soft-danger:hover {
     min-width: 980px;
   }
 }
+
+/* ===================== PRINT STYLES ===================== */
+@media print {
+  /* Hide non-essential chrome */
+  .app-header,
+  .side-sheet,
+  .cvm-header-bar button[type="submit"],
+  .cvm-header-bar button[onclick],
+  .cvm-export-wrap,
+  .cvm-bulk-bar,
+  .cvm-toast-stack,
+  .sticky-col-0,
+  .cvm-note-wrap textarea,
+  .cvm-month-wrap,
+  .row-status,
+  .day-sheet,
+  .day-sheet-overlay {
+    display: none !important;
+  }
+
+  body, html {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .app-main {
+    padding: 0 !important;
+  }
+
+  .section-card {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  .cvm-table thead th,
+  .cvm-table td {
+    border: 1px solid #ccc !important;
+    background: #fff !important;
+    color: #000 !important;
+    padding: 4px 6px !important;
+    font-size: 10px !important;
+  }
+
+  /* Show plain text value where input/select would be */
+  .cvm-month-wrap input[name="planned_date"] {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  .cvm-table {
+    min-width: unset !important;
+    width: 100% !important;
+  }
+
+  .grid-scroll-frame {
+    overflow: visible !important;
+  }
+
+  /* Show scrolled-off columns in print */
+  .scroll-shadow { display: none !important; }
+
+  .page-header { display: none !important; }
+}
+
+/* ===================== NEW COMPONENT STYLES ===================== */
+
+/* --- Pagination --- */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0 var(--space-2);
+  flex-wrap: wrap;
+}
+
+.pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pagination-btn:hover {
+  background: var(--muted);
+}
+
+.pagination-btn.disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
+.pagination-info {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* --- Customer search & export --- */
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.input-search {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+  min-width: 200px;
+}
+
+.input-search:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* --- Customer inline edit --- */
+.cust-edit-row td {
+  background: var(--surface-elevated) !important;
+  padding: var(--space-3) !important;
+}
+
+.cust-edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+
+.cust-edit-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.cust-actions-cell {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+/* --- Undo toast custom button --- */
+.cust-undo-toast .cust-undo-btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8rem;
+  margin-left: 8px;
+  padding: 2px 8px;
+}
+
+.cust-undo-toast .cust-undo-btn:hover {
+  background: rgba(255,255,255,0.15);
+}
+
+/* --- Bulk CVM action bar --- */
+.cvm-bulk-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: var(--space-3) auto;
+  max-width: var(--layout-max);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+}
+
+.cvm-bulk-count {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.cvm-bulk-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.cvm-bulk-field select,
+.cvm-bulk-field input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.cvm-bulk-btn {
+  font-size: 0.85rem !important;
+  padding: 6px 12px !important;
+}
+
+/* sticky-col-0 for checkbox column */
+.sticky-col-0 {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  width: 36px;
+  min-width: 36px;
+  text-align: center;
+}
+
+thead .sticky-col-0 {
+  background: var(--surface-elevated);
+  z-index: 3;
+}
+
+/* Products footer row */
+.products-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}

@@ -41,8 +41,9 @@
       <div class="planner-control">
         <label for="planner-month">Month</label>
         <select id="planner-month" name="month">
+          {% set month_labels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] %}
           {% for m in range(1, 13) %}
-          <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
+          <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ month_labels[m-1] }}</option>
           {% endfor %}
         </select>
       </div>
@@ -72,6 +73,11 @@
 
       <div class="planner-load-wrap">
         <button type="submit">Load Planner</button>
+        <a
+          class="button-secondary"
+          href="/calendar?week_start_day={{ week_start_day }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}"
+          aria-label="Jump to current month"
+        >Today</a>
       </div>
     </div>
   </form>
@@ -212,7 +218,11 @@
       });
     };
 
+    const FOCUSABLE_SEL = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+    let sheetTrigger = null;
+
     const openSheet = (button) => {
+      sheetTrigger = button;
       const dateLabel = button.getAttribute("data-date-label") || "Day Details";
       let planned = [];
       let completed = [];
@@ -236,12 +246,15 @@
       sheet.classList.add("is-open");
       sheet.setAttribute("aria-hidden", "false");
       document.body.classList.add("sheet-open");
+      const panel = sheet.querySelector(".day-sheet-panel");
+      if (panel) { const first = panel.querySelector(FOCUSABLE_SEL); if (first) first.focus(); }
     };
 
     const closeSheet = () => {
       sheet.classList.remove("is-open");
       sheet.setAttribute("aria-hidden", "true");
       document.body.classList.remove("sheet-open");
+      if (sheetTrigger) { sheetTrigger.focus(); sheetTrigger = null; }
     };
 
     document.querySelectorAll("[data-day-open]").forEach((button) => {
@@ -254,6 +267,18 @@
     window.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && sheet.classList.contains("is-open")) {
         closeSheet();
+      }
+      if (event.key === "Tab" && sheet.classList.contains("is-open")) {
+        const panel = sheet.querySelector(".day-sheet-panel");
+        if (panel) {
+          const focusable = Array.from(panel.querySelectorAll(FOCUSABLE_SEL));
+          if (focusable.length) {
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey) { if (document.activeElement === first) { event.preventDefault(); last.focus(); } }
+            else { if (document.activeElement === last) { event.preventDefault(); first.focus(); } }
+          }
+        }
       }
     });
   })();

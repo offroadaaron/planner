@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#eef3fb" />
+    <meta name="theme-color" content="#0f1115" id="meta-theme-color" />
     <title>Calendar Planner</title>
     <script>
       (() => {
@@ -113,11 +113,27 @@
           return;
         }
 
+        const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+        function trapFocus(container, event) {
+          const focusable = Array.from(container.querySelectorAll(FOCUSABLE)).filter((el) => !el.closest("[aria-hidden='true']"));
+          if (!focusable.length) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (event.shiftKey) {
+            if (document.activeElement === first) { event.preventDefault(); last.focus(); }
+          } else {
+            if (document.activeElement === last) { event.preventDefault(); first.focus(); }
+          }
+        }
+
         const open = () => {
           sheet.classList.add("open");
           sheet.setAttribute("aria-hidden", "false");
           openBtn.setAttribute("aria-expanded", "true");
           document.body.classList.add("sheet-open");
+          const panel = sheet.querySelector(".sheet-panel");
+          if (panel) { const first = panel.querySelector(FOCUSABLE); if (first) first.focus(); }
         };
 
         const close = () => {
@@ -125,6 +141,7 @@
           sheet.setAttribute("aria-hidden", "true");
           openBtn.setAttribute("aria-expanded", "false");
           document.body.classList.remove("sheet-open");
+          openBtn.focus();
         };
 
         openBtn.addEventListener("click", open);
@@ -138,6 +155,10 @@
         window.addEventListener("keydown", (event) => {
           if (event.key === "Escape" && sheet.classList.contains("open")) {
             close();
+          }
+          if (event.key === "Tab" && sheet.classList.contains("open")) {
+            const panel = sheet.querySelector(".sheet-panel");
+            if (panel) trapFocus(panel, event);
           }
         });
 
@@ -175,6 +196,7 @@
 
         const themeToggle = document.getElementById("theme-toggle");
         const themeKey = "planner.theme";
+        const metaThemeColor = document.getElementById("meta-theme-color");
         const applyTheme = (theme) => {
           const nextTheme = theme === "dark" ? "dark" : "light";
           document.documentElement.setAttribute("data-theme", nextTheme);
@@ -182,6 +204,9 @@
           if (themeToggle) {
             themeToggle.setAttribute("aria-label", nextTheme === "dark" ? "Switch to light mode" : "Switch to dark mode");
             themeToggle.setAttribute("title", nextTheme === "dark" ? "Switch to light mode" : "Switch to dark mode");
+          }
+          if (metaThemeColor) {
+            metaThemeColor.setAttribute("content", nextTheme === "dark" ? "#0f1115" : "#eef3fb");
           }
         };
 

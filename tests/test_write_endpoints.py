@@ -20,6 +20,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import main
 
 
+def _store_import_token(
+    workbook_bytes: bytes,
+    filename: str,
+    year: int = 2026,
+    upsert_policy: str = "merge",
+    validation_mode: str = "standard",
+    duplicate_policy: str = "last_wins",
+) -> str:
+    """Pre-generate and store a preview token so apply-mode tests pass the guard."""
+    token = main._make_preview_token(
+        workbook_bytes, filename, year, upsert_policy, validation_mode, duplicate_policy
+    )
+    main._store_preview_token(token)
+    return token
+
+
 @pytest.fixture()
 def client_and_engine(tmp_path):
     db_path = tmp_path / "test.db"
@@ -897,10 +913,11 @@ def test_import_workbook_ingests_core_data(client_and_engine):
     client, engine = client_and_engine
 
     workbook_bytes = _build_minimal_workbook_bytes()
+    token = _store_import_token(workbook_bytes, "planner.xlsm")
 
     response = client.post(
         "/import/workbook",
-        data={"year_override": "2026"},
+        data={"year_override": "2026", "import_mode": "apply", "preview_token": token},
         files={
             "workbook_file": (
                 "planner.xlsm",
@@ -989,6 +1006,7 @@ def test_import_workbook_preview_does_not_commit(client_and_engine):
 def test_import_workbook_create_only_skips_existing_customer_updates(client_and_engine):
     client, engine = client_and_engine
     workbook_bytes = _build_minimal_workbook_bytes()
+    token = _store_import_token(workbook_bytes, "planner.xlsm", upsert_policy="create_only")
 
     seed_customer(engine, 1, "C100", "Original Name")
     with engine.begin() as conn:
@@ -1002,6 +1020,7 @@ def test_import_workbook_create_only_skips_existing_customer_updates(client_and_
             "year_override": "2026",
             "import_mode": "apply",
             "upsert_policy": "create_only",
+            "preview_token": token,
         },
         files={
             "workbook_file": (
@@ -1028,6 +1047,9 @@ def test_import_workbook_create_only_skips_existing_customer_updates(client_and_
 def test_import_workbook_apply_strict_blocks_on_row_errors(client_and_engine):
     client, engine = client_and_engine
     workbook_bytes = _build_invalid_date_workbook_bytes()
+    token = _store_import_token(
+        workbook_bytes, "planner-invalid.xlsm", validation_mode="strict"
+    )
 
     response = client.post(
         "/import/workbook",
@@ -1037,6 +1059,7 @@ def test_import_workbook_apply_strict_blocks_on_row_errors(client_and_engine):
             "upsert_policy": "merge",
             "validation_mode": "strict",
             "duplicate_policy": "last_wins",
+            "preview_token": token,
         },
         files={
             "workbook_file": (
@@ -1061,6 +1084,7 @@ def test_import_workbook_apply_strict_blocks_on_row_errors(client_and_engine):
 def test_import_workbook_ignores_completed_without_valid_planned_date(client_and_engine):
     client, engine = client_and_engine
     workbook_bytes = _build_invalid_date_workbook_bytes()
+    token = _store_import_token(workbook_bytes, "planner-invalid.xlsm")
 
     response = client.post(
         "/import/workbook",
@@ -1070,6 +1094,7 @@ def test_import_workbook_ignores_completed_without_valid_planned_date(client_and
             "upsert_policy": "merge",
             "validation_mode": "standard",
             "duplicate_policy": "last_wins",
+            "preview_token": token,
         },
         files={
             "workbook_file": (
@@ -1107,6 +1132,9 @@ def test_import_workbook_ignores_completed_without_valid_planned_date(client_and
 def test_import_workbook_duplicate_policy_error_blocks_apply(client_and_engine):
     client, engine = client_and_engine
     workbook_bytes = _build_duplicate_customer_workbook_bytes()
+    token = _store_import_token(
+        workbook_bytes, "planner-duplicate.xlsm", duplicate_policy="error"
+    )
 
     response = client.post(
         "/import/workbook",
@@ -1116,6 +1144,7 @@ def test_import_workbook_duplicate_policy_error_blocks_apply(client_and_engine):
             "upsert_policy": "merge",
             "validation_mode": "standard",
             "duplicate_policy": "error",
+            "preview_token": token,
         },
         files={
             "workbook_file": (

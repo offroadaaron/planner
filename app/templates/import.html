@@ -50,6 +50,7 @@
       <option value="first_wins" {% if duplicate_policy == 'first_wins' %}selected{% endif %}>Duplicates: First row wins (skip later)</option>
       <option value="error" {% if duplicate_policy == 'error' %}selected{% endif %}>Duplicates: Error (skip + block apply)</option>
     </select>
+    <input type="hidden" name="preview_token" value="{{ preview_token or '' }}" />
     <div class="import-actions">
       <button type="submit" name="import_mode" value="preview" class="button-secondary">Preview</button>
       <button

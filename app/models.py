@@ -26,6 +26,10 @@ class Customer(Base):
     iws_code: Mapped[str | None] = mapped_column(Text)
     old_value: Mapped[str | None] = mapped_column(Text)
     old_name: Mapped[str | None] = mapped_column(Text)
+    # door_count is populated by workbook import; shows number of physical doors/stores
+    door_count: Mapped[int | None] = mapped_column(Integer)
+    # cvm_notes is the per-customer notes column editable in the CVM view
+    cvm_notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

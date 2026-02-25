@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+{% endblock %}
+
 {% block page_header %}
 <section class="section-card page-header">
   <div>
@@ -44,9 +48,28 @@
       <h2 class="section-title">Customer Directory</h2>
       <p class="subtle">{{ customers|length }} customer{% if customers|length != 1 %}s{% endif %} in this workspace.</p>
     </div>
+    <div class="section-header-actions">
+      <input
+        id="customer-search"
+        type="search"
+        placeholder="Search by code or name..."
+        class="input-search"
+        aria-label="Search customers"
+        autocomplete="off"
+      />
+      <div class="inline-dropdown cust-export-wrap" aria-label="Export customers">
+        <details class="inline-dropdown">
+          <summary class="button-secondary">Export</summary>
+          <div class="inline-dropdown-panel" role="menu" aria-label="Export menu">
+            <button id="cust-export-csv" type="button" role="menuitem">Export CSV</button>
+            <button id="cust-export-xlsx" type="button" role="menuitem">Export XLSX</button>
+          </div>
+        </details>
+      </div>
+    </div>
   </div>
   <div class="table-scroll">
-    <table class="customers-table">
+    <table class="customers-table" id="customers-table">
       <thead>
         <tr>
           <th>Cust Code</th><th>Name</th><th>Trade Name</th><th>Territory</th><th>Group</th><th>IWS</th><th>Actions</th>
@@ -54,16 +77,40 @@
       </thead>
       <tbody>
         {% for c in customers %}
-        <tr>
-          <td>{{ c.cust_code }}</td>
-          <td>{{ c.name }}</td>
-          <td>{{ c.trade_name or "" }}</td>
-          <td>{{ c.territory }}</td>
-          <td>{{ c.group_name or "" }}</td>
-          <td>{{ c.iws_code or "" }}</td>
-          <td>
-            <form method="post" action="/customers/{{ c.id }}/delete" class="inline-actions" onsubmit="return confirm('Delete this customer and related data?');">
-              <button type="submit" class="button-soft-danger">Delete</button>
+        <tr
+          data-cust-id="{{ c.id }}"
+          data-cust-code="{{ c.cust_code }}"
+          data-name="{{ c.name }}"
+          data-trade-name="{{ c.trade_name or '' }}"
+          data-territory="{{ c.territory }}"
+          data-group="{{ c.group_name or '' }}"
+          data-iws="{{ c.iws_code or '' }}"
+        >
+          <td class="cust-view-cell">{{ c.cust_code }}</td>
+          <td class="cust-view-cell">{{ c.name }}</td>
+          <td class="cust-view-cell">{{ c.trade_name or "" }}</td>
+          <td class="cust-view-cell">{{ c.territory }}</td>
+          <td class="cust-view-cell">{{ c.group_name or "" }}</td>
+          <td class="cust-view-cell">{{ c.iws_code or "" }}</td>
+          <td class="cust-actions-cell">
+            <button type="button" class="button-secondary cust-edit-btn" aria-label="Edit {{ c.name }}">Edit</button>
+            <button type="button" class="button-soft-danger cust-delete-btn" data-cust-id="{{ c.id }}" aria-label="Delete {{ c.name }}">Delete</button>
+          </td>
+        </tr>
+        {# Hidden edit row #}
+        <tr class="cust-edit-row" data-edit-for="{{ c.id }}" style="display:none">
+          <td colspan="7">
+            <form class="cust-edit-form grid" data-cust-id="{{ c.id }}">
+              <input name="cust_code" placeholder="Cust Code" value="{{ c.cust_code }}" required />
+              <input name="name" placeholder="Customer Name" value="{{ c.name }}" required />
+              <input name="trade_name" placeholder="Trade Name" value="{{ c.trade_name or '' }}" />
+              <input name="territory_name" placeholder="Territory" value="{{ c.territory }}" />
+              <input name="group_name" placeholder="Group" value="{{ c.group_name or '' }}" />
+              <input name="iws_code" placeholder="IWS Code" value="{{ c.iws_code or '' }}" />
+              <div class="cust-edit-actions">
+                <button type="submit" class="button-primary">Save</button>
+                <button type="button" class="button-secondary cust-cancel-btn">Cancel</button>
+              </div>
             </form>
           </td>
         </tr>
@@ -82,5 +129,245 @@
       </tbody>
     </table>
   </div>
+
+  {% if total_pages > 1 %}
+  <nav class="pagination-bar" aria-label="Customer pages">
+    {% if page > 1 %}
+    <a class="pagination-btn" href="/customers?page={{ page - 1 }}{% if q %}&q={{ q }}{% endif %}">&lsaquo; Prev</a>
+    {% else %}
+    <span class="pagination-btn disabled">&lsaquo; Prev</span>
+    {% endif %}
+    <span class="pagination-info">Page {{ page }} of {{ total_pages }} &mdash; {{ total }} customers</span>
+    {% if page < total_pages %}
+    <a class="pagination-btn" href="/customers?page={{ page + 1 }}{% if q %}&q={{ q }}{% endif %}">Next &rsaquo;</a>
+    {% else %}
+    <span class="pagination-btn disabled">Next &rsaquo;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
 </section>
+
+<div id="cust-toast-stack" class="cvm-toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+<script>
+  (() => {
+    const toastStack = document.getElementById("cust-toast-stack");
+    const searchInput = document.getElementById("customer-search");
+    const table = document.getElementById("customers-table");
+    const exportMenus = Array.from(document.querySelectorAll(".cust-export-wrap .inline-dropdown"));
+
+    // --- Toast ---
+    const pushToast = (message, type = "success") => {
+      if (!toastStack) return;
+      const toast = document.createElement("div");
+      toast.className = `cvm-toast${type === "error" ? " is-error" : ""}`;
+      toast.setAttribute("role", "status");
+      toast.textContent = message;
+      toastStack.appendChild(toast);
+      setTimeout(() => { toast.style.opacity = "0"; }, 3000);
+      setTimeout(() => { toast.remove(); }, 3400);
+    };
+
+    // --- Search filter ---
+    if (searchInput && table) {
+      searchInput.addEventListener("input", () => {
+        const q = searchInput.value.trim().toLowerCase();
+        table.querySelectorAll("tbody tr[data-cust-id]").forEach((row) => {
+          const code = (row.getAttribute("data-cust-code") || "").toLowerCase();
+          const name = (row.getAttribute("data-name") || "").toLowerCase();
+          const territory = (row.getAttribute("data-territory") || "").toLowerCase();
+          const match = !q || code.includes(q) || name.includes(q) || territory.includes(q);
+          row.style.display = match ? "" : "none";
+          // Also hide corresponding edit row
+          const editRow = table.querySelector(`tr.cust-edit-row[data-edit-for="${row.getAttribute("data-cust-id")}"]`);
+          if (editRow) editRow.style.display = "none";
+        });
+      });
+    }
+
+    // --- Inline edit ---
+    document.querySelectorAll(".cust-edit-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const row = btn.closest("tr[data-cust-id]");
+        if (!row) return;
+        const custId = row.getAttribute("data-cust-id");
+        const editRow = table.querySelector(`tr.cust-edit-row[data-edit-for="${custId}"]`);
+        if (!editRow) return;
+        editRow.style.display = "";
+        editRow.querySelector("input")?.focus();
+        btn.setAttribute("aria-expanded", "true");
+      });
+    });
+
+    document.querySelectorAll(".cust-cancel-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const editRow = btn.closest("tr.cust-edit-row");
+        if (editRow) editRow.style.display = "none";
+      });
+    });
+
+    document.querySelectorAll(".cust-edit-form").forEach((form) => {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const custId = form.getAttribute("data-cust-id");
+        const saveBtn = form.querySelector("button[type='submit']");
+        if (saveBtn) saveBtn.textContent = "Saving...";
+
+        try {
+          const resp = await fetch(`/customers/${custId}/update`, {
+            method: "POST",
+            body: new FormData(form),
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+          // Update view cells in the main row
+          const mainRow = table.querySelector(`tr[data-cust-id="${custId}"]`);
+          if (mainRow) {
+            const vals = Object.fromEntries(new FormData(form).entries());
+            mainRow.setAttribute("data-cust-code", vals.cust_code || "");
+            mainRow.setAttribute("data-name", vals.name || "");
+            mainRow.setAttribute("data-trade-name", vals.trade_name || "");
+            mainRow.setAttribute("data-territory", vals.territory_name || "");
+            mainRow.setAttribute("data-group", vals.group_name || "");
+            mainRow.setAttribute("data-iws", vals.iws_code || "");
+            const cells = mainRow.querySelectorAll(".cust-view-cell");
+            if (cells[0]) cells[0].textContent = vals.cust_code || "";
+            if (cells[1]) cells[1].textContent = vals.name || "";
+            if (cells[2]) cells[2].textContent = vals.trade_name || "";
+            if (cells[3]) cells[3].textContent = vals.territory_name || "";
+            if (cells[4]) cells[4].textContent = vals.group_name || "";
+            if (cells[5]) cells[5].textContent = vals.iws_code || "";
+          }
+
+          const editRow = table.querySelector(`tr.cust-edit-row[data-edit-for="${custId}"]`);
+          if (editRow) editRow.style.display = "none";
+          pushToast("Customer saved.");
+        } catch (err) {
+          console.error("Customer update error:", err);
+          pushToast("Save failed. Please try again.", "error");
+        } finally {
+          if (saveBtn) saveBtn.textContent = "Save";
+        }
+      });
+    });
+
+    // --- AJAX Delete with undo ---
+    const pendingDeletes = new Map(); // custId -> timeout id
+
+    document.querySelectorAll(".cust-delete-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const custId = btn.getAttribute("data-cust-id");
+        const mainRow = table.querySelector(`tr[data-cust-id="${custId}"]`);
+        const editRow = table.querySelector(`tr.cust-edit-row[data-edit-for="${custId}"]`);
+        if (!mainRow) return;
+
+        // Hide rows immediately (visual delete)
+        mainRow.style.display = "none";
+        if (editRow) editRow.style.display = "none";
+
+        // Show undo toast
+        if (!toastStack) return;
+        const toast = document.createElement("div");
+        toast.className = "cvm-toast cust-undo-toast";
+        toast.setAttribute("role", "status");
+        toast.innerHTML = `Customer deleted. <button class="cust-undo-btn" type="button">Undo</button>`;
+        toastStack.appendChild(toast);
+
+        // Schedule actual delete after 8 seconds
+        const timerId = setTimeout(async () => {
+          pendingDeletes.delete(custId);
+          toast.remove();
+          try {
+            await fetch(`/customers/${custId}/delete`, {
+              method: "POST",
+              headers: { "X-Requested-With": "XMLHttpRequest" },
+            });
+          } catch (err) {
+            console.error("Customer delete error:", err);
+            // Restore rows on network failure
+            mainRow.style.display = "";
+            pushToast("Delete failed. Customer restored.", "error");
+          }
+        }, 8000);
+
+        pendingDeletes.set(custId, timerId);
+
+        // Undo button
+        toast.querySelector(".cust-undo-btn").addEventListener("click", () => {
+          const tid = pendingDeletes.get(custId);
+          if (tid) { clearTimeout(tid); pendingDeletes.delete(custId); }
+          toast.remove();
+          mainRow.style.display = "";
+          pushToast("Delete cancelled.");
+        });
+
+        // Auto-remove toast after 8s
+        setTimeout(() => { toast.style.opacity = "0"; }, 7500);
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 8400);
+      });
+    });
+
+    // --- Export ---
+    if (exportMenus.length) {
+      window.addEventListener("click", (event) => {
+        exportMenus.forEach((menu) => {
+          if (!menu.contains(event.target)) menu.removeAttribute("open");
+        });
+      });
+    }
+
+    const collectCustomerRows = () => {
+      const rows = [];
+      table.querySelectorAll("tbody tr[data-cust-id]").forEach((row) => {
+        if (row.style.display === "none") return;
+        rows.push({
+          cust_code: row.getAttribute("data-cust-code") || "",
+          name: row.getAttribute("data-name") || "",
+          trade_name: row.getAttribute("data-trade-name") || "",
+          territory: row.getAttribute("data-territory") || "",
+          group_name: row.getAttribute("data-group") || "",
+          iws_code: row.getAttribute("data-iws") || "",
+        });
+      });
+      return rows;
+    };
+
+    const escapeCell = (v) => {
+      const s = String(v ?? "");
+      if (s.includes('"') || s.includes(",") || s.includes("\n")) return '"' + s.replaceAll('"', '""') + '"';
+      return s;
+    };
+
+    const downloadCsv = (rows) => {
+      if (!rows.length) { pushToast("No rows to export.", "error"); return; }
+      const headers = Object.keys(rows[0]);
+      const csv = [headers.join(",")].concat(rows.map((r) => headers.map((h) => escapeCell(r[h])).join(","))).join("\n");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+      link.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link); link.click(); link.remove();
+      pushToast(`Exported ${rows.length} customers to CSV.`);
+    };
+
+    const downloadXlsx = (rows) => {
+      if (!rows.length) { pushToast("No rows to export.", "error"); return; }
+      if (!window.XLSX) { pushToast("XLSX export unavailable.", "error"); return; }
+      const ws = window.XLSX.utils.json_to_sheet(rows);
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, "Customers");
+      window.XLSX.writeFile(wb, `customers-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      pushToast(`Exported ${rows.length} customers to XLSX.`);
+    };
+
+    document.getElementById("cust-export-csv")?.addEventListener("click", () => {
+      downloadCsv(collectCustomerRows());
+      exportMenus.forEach((m) => m.removeAttribute("open"));
+    });
+    document.getElementById("cust-export-xlsx")?.addEventListener("click", () => {
+      downloadXlsx(collectCustomerRows());
+      exportMenus.forEach((m) => m.removeAttribute("open"));
+    });
+  })();
+</script>
 {% endblock %}

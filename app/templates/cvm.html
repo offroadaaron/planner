@@ -37,6 +37,8 @@
 
       <button type="submit" class="button-primary">Load CVM</button>
 
+      <button type="button" class="button-secondary" onclick="window.print()">Print View</button>
+
       <div class="cvm-export-wrap" aria-label="Export current CVM table">
         <details class="inline-dropdown">
           <summary class="button-secondary">Export</summary>
@@ -50,6 +52,27 @@
   </div>
 </section>
 
+<div id="cvm-bulk-bar" class="cvm-bulk-bar" aria-live="polite" style="display:none">
+  <span id="cvm-bulk-count" class="cvm-bulk-count">0 selected</span>
+  <label class="cvm-bulk-field">
+    Month:
+    <select id="cvm-bulk-month">
+      {% for i in range(1, 13) %}
+      <option value="{{ i }}">{{ months[i-1] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="cvm-bulk-field">
+    Date:
+    <input type="date" id="cvm-bulk-date" />
+  </label>
+  <button type="button" id="cvm-bulk-mark-done" class="button-primary cvm-bulk-btn">Mark Done</button>
+  <button type="button" id="cvm-bulk-mark-undone" class="button-secondary cvm-bulk-btn">Mark Undone</button>
+  <button type="button" id="cvm-bulk-set-date" class="button-secondary cvm-bulk-btn">Set Date</button>
+  <button type="button" id="cvm-bulk-clear" class="button-soft-danger cvm-bulk-btn">Clear</button>
+  <button type="button" id="cvm-bulk-deselect" class="button-secondary cvm-bulk-btn">Deselect All</button>
+</div>
+
 <section class="section-card">
   <div class="grid-scroll-frame">
     <div id="cvm-shadow-left" class="scroll-shadow left" aria-hidden="true"></div>
@@ -58,6 +81,7 @@
       <table id="cvm-table" class="cvm-table" aria-label="CVM editable table">
       <thead>
         <tr>
+          <th class="sticky-col-0"><input type="checkbox" id="cvm-select-all" aria-label="Select all rows" /></th>
           <th class="sticky-col-1">Cust Code</th>
           <th class="sticky-col-2">Customer Name</th>
           <th>Row Status</th>
@@ -84,6 +108,7 @@
           data-trade-name="{{ r.trade_name }}"
           data-sort="{{ r.sort_bucket }}"
         >
+          <td class="sticky-col-0"><input type="checkbox" class="cvm-row-check" data-cust-id="{{ r.id }}" aria-label="Select {{ r.customer_name }}" /></td>
           <td class="sticky-col-1">{{ r.cust_code }}</td>
           <td class="sticky-col-2">{{ r.customer_name }}</td>
           <td><span class="row-status" data-row-status>Saved</span></td>
@@ -100,8 +125,8 @@
             </form>
           </td>
           <td>{{ r.last_completed or '' }}</td>
-          <td>{{ r.planned_total }}</td>
-          <td>{{ r.completed_total }}</td>
+          <td data-planned-total="{{ r.planned_total }}">{{ r.planned_total }}</td>
+          <td data-completed-total="{{ r.completed_total }}">{{ r.completed_total }}</td>
 
           {% for i in range(1, 13) %}
           {% set cell = r.month_data.get(i) %}
@@ -122,7 +147,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="23" class="cvm-empty">No customer rows available for the selected filters.</td>
+          <td colspan="24" class="cvm-empty">No customer rows available for the selected filters.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -231,7 +256,8 @@
         if (showSuccessToast) {
           pushToast("Row changes saved.");
         }
-      } catch (_) {
+      } catch (err) {
+        console.error("CVM save error:", err);
         setRowStatus(rowId, "is-error", "Error");
         pushToast("Save failed. Please try again.", "error");
       }
@@ -285,8 +311,8 @@
           sort: row.getAttribute("data-sort") || "",
           trade_name: row.getAttribute("data-trade-name") || "",
           notes: row.querySelector("textarea[name='notes']")?.value || "",
-          total_planned: row.children[9]?.textContent.trim() || "",
-          total_completed: row.children[10]?.textContent.trim() || "",
+          total_planned: row.querySelector("[data-planned-total]")?.getAttribute("data-planned-total") || "",
+          total_completed: row.querySelector("[data-completed-total]")?.getAttribute("data-completed-total") || "",
         };
 
         row.querySelectorAll("form.cvm-month-wrap").forEach((form) => {
@@ -359,6 +385,101 @@
         exportMenus.forEach((menu) => menu.removeAttribute("open"));
       });
     }
+  })();
+</script>
+
+<script>
+  // Bulk action logic
+  (() => {
+    const bulkBar = document.getElementById("cvm-bulk-bar");
+    const bulkCount = document.getElementById("cvm-bulk-count");
+    const selectAll = document.getElementById("cvm-select-all");
+    const monthSelect = document.getElementById("cvm-bulk-month");
+    const dateInput = document.getElementById("cvm-bulk-date");
+    const btnDone = document.getElementById("cvm-bulk-mark-done");
+    const btnUndone = document.getElementById("cvm-bulk-mark-undone");
+    const btnSetDate = document.getElementById("cvm-bulk-set-date");
+    const btnClear = document.getElementById("cvm-bulk-clear");
+    const btnDeselect = document.getElementById("cvm-bulk-deselect");
+    const toastStack = document.getElementById("cvm-toast-stack");
+    const year = {{ year }};
+
+    const getChecked = () => Array.from(document.querySelectorAll(".cvm-row-check:checked"));
+
+    const updateBar = () => {
+      const checked = getChecked();
+      if (bulkBar) bulkBar.style.display = checked.length ? "flex" : "none";
+      if (bulkCount) bulkCount.textContent = `${checked.length} selected`;
+    };
+
+    document.querySelectorAll(".cvm-row-check").forEach((cb) => cb.addEventListener("change", updateBar));
+
+    if (selectAll) {
+      selectAll.addEventListener("change", () => {
+        document.querySelectorAll(".cvm-row-check").forEach((cb) => { cb.checked = selectAll.checked; });
+        updateBar();
+      });
+    }
+
+    if (btnDeselect) {
+      btnDeselect.addEventListener("click", () => {
+        document.querySelectorAll(".cvm-row-check").forEach((cb) => { cb.checked = false; });
+        if (selectAll) selectAll.checked = false;
+        updateBar();
+      });
+    }
+
+    const doBulk = async (action) => {
+      const checked = getChecked();
+      if (!checked.length) return;
+      const month = monthSelect ? Number(monthSelect.value) : 1;
+      const plannedDate = dateInput ? dateInput.value : "";
+
+      const formData = new FormData();
+      formData.append("year", String(year));
+      formData.append("month", String(month));
+      formData.append("action", action);
+      if (plannedDate) formData.append("planned_date", plannedDate);
+      checked.forEach((cb) => formData.append("customer_ids", cb.getAttribute("data-cust-id") || ""));
+
+      try {
+        const resp = await fetch("/cvm/bulk-update", {
+          method: "POST",
+          body: formData,
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const json = await resp.json();
+        if (toastStack) {
+          const toast = document.createElement("div");
+          toast.className = "cvm-toast";
+          toast.setAttribute("role", "status");
+          toast.textContent = `Updated ${json.updated} row(s). Reloading...`;
+          toastStack.appendChild(toast);
+        }
+        setTimeout(() => window.location.reload(), 900);
+      } catch (err) {
+        console.error("Bulk CVM error:", err);
+        if (toastStack) {
+          const toast = document.createElement("div");
+          toast.className = "cvm-toast is-error";
+          toast.setAttribute("role", "status");
+          toast.textContent = "Bulk action failed. Please try again.";
+          toastStack.appendChild(toast);
+        }
+      }
+    };
+
+    btnDone?.addEventListener("click", () => doBulk("mark_complete"));
+    btnUndone?.addEventListener("click", () => doBulk("mark_incomplete"));
+    btnSetDate?.addEventListener("click", () => {
+      if (!dateInput?.value) { alert("Please select a date first."); return; }
+      doBulk("set_date");
+    });
+    btnClear?.addEventListener("click", () => {
+      if (!confirm("Clear all CVM entries for selected rows in this month?")) return;
+      doBulk("clear");
+    });
   })();
 </script>
 {% endblock %}

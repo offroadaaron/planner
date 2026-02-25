@@ -1,10 +1,14 @@
 import calendar
+import hashlib
 import logging
+import time
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
+from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
@@ -14,16 +18,45 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, engine
 from app.workbook_import import import_planner_workbook
 
-app = FastAPI(title="Calendar Planner")
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
-logger = logging.getLogger(__name__)
-
 MONTH_SHORT = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 
+# Server-side store for import preview tokens: token -> expiry timestamp
+_preview_tokens: dict[str, float] = {}
+_PREVIEW_TOKEN_TTL = 1800  # 30 minutes
 
-@app.on_event("startup")
-def ensure_cvm_tables():
+
+def _make_preview_token(content: bytes, filename: str, year_override: Any, upsert_policy: str, validation_mode: str, duplicate_policy: str) -> str:
+    h = hashlib.sha256()
+    h.update(content)
+    h.update(filename.encode())
+    h.update(str(year_override).encode())
+    h.update(upsert_policy.encode())
+    h.update(validation_mode.encode())
+    h.update(duplicate_policy.encode())
+    return h.hexdigest()[:32]
+
+
+def _store_preview_token(token: str) -> None:
+    now = time.time()
+    expired = [k for k, v in list(_preview_tokens.items()) if v < now]
+    for k in expired:
+        del _preview_tokens[k]
+    _preview_tokens[token] = now + _PREVIEW_TOKEN_TTL
+
+
+def _validate_preview_token(token: str) -> bool:
+    if not token:
+        return False
+    expiry = _preview_tokens.get(token)
+    if expiry is None:
+        return False
+    if time.time() > expiry:
+        del _preview_tokens[token]
+        return False
+    return True
+
+
+def _ensure_tables() -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -66,6 +99,18 @@ def ensure_cvm_tables():
         conn.execute(
             text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS door_count INTEGER")
         )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _ensure_tables()
+    yield
+
+
+app = FastAPI(title="Calendar Planner", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -130,20 +175,62 @@ def ensure_product_exists(db: Session, product_id: int):
         raise HTTPException(status_code=400, detail="Invalid product_id")
 
 
-def load_customers_page_data(db: Session):
+PAGE_SIZE_DEFAULT = 50
+
+
+def load_customers_page_data(db: Session, page: int = 1, page_size: int = PAGE_SIZE_DEFAULT, q: str = ""):
     territories = db.execute(text("SELECT id, name FROM territories ORDER BY name")).mappings().all()
-    customers = db.execute(
-        text(
-            """
-            SELECT c.id, c.cust_code, c.name, c.trade_name, c.group_name, c.iws_code,
-                   COALESCE(t.name, '') AS territory
-            FROM customers c
-            LEFT JOIN territories t ON t.id = c.territory_id
-            ORDER BY c.cust_code
-            """
-        )
-    ).mappings().all()
-    return {"customers": customers, "territories": territories}
+    offset = (max(page, 1) - 1) * page_size
+    q_clean = q.strip().lower()
+    if q_clean:
+        total = db.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM customers c
+                WHERE LOWER(c.cust_code) LIKE :q OR LOWER(c.name) LIKE :q
+                """
+            ),
+            {"q": f"%{q_clean}%"},
+        ).scalar_one()
+        customers = db.execute(
+            text(
+                """
+                SELECT c.id, c.cust_code, c.name, c.trade_name, c.group_name, c.iws_code,
+                       COALESCE(t.name, '') AS territory
+                FROM customers c
+                LEFT JOIN territories t ON t.id = c.territory_id
+                WHERE LOWER(c.cust_code) LIKE :q OR LOWER(c.name) LIKE :q
+                ORDER BY c.cust_code
+                LIMIT :limit OFFSET :offset
+                """
+            ),
+            {"q": f"%{q_clean}%", "limit": page_size, "offset": offset},
+        ).mappings().all()
+    else:
+        total = db.execute(text("SELECT COUNT(*) FROM customers")).scalar_one()
+        customers = db.execute(
+            text(
+                """
+                SELECT c.id, c.cust_code, c.name, c.trade_name, c.group_name, c.iws_code,
+                       COALESCE(t.name, '') AS territory
+                FROM customers c
+                LEFT JOIN territories t ON t.id = c.territory_id
+                ORDER BY c.cust_code
+                LIMIT :limit OFFSET :offset
+                """
+            ),
+            {"limit": page_size, "offset": offset},
+        ).mappings().all()
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return {
+        "customers": customers,
+        "territories": territories,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "q": q.strip(),
+    }
 
 
 def render_customers_page(
@@ -153,8 +240,11 @@ def render_customers_page(
     status_code: int = 200,
     form_error: str = "",
     form_values: dict[str, str] | None = None,
+    page: int = 1,
+    page_size: int = PAGE_SIZE_DEFAULT,
+    q: str = "",
 ):
-    context = load_customers_page_data(db)
+    context = load_customers_page_data(db, page=page, page_size=page_size, q=q)
     return templates.TemplateResponse(
         "customers.html",
         {
@@ -163,6 +253,11 @@ def render_customers_page(
             "territories": context["territories"],
             "form_error": form_error,
             "form_values": form_values or {},
+            "total": context["total"],
+            "page": context["page"],
+            "page_size": context["page_size"],
+            "total_pages": context["total_pages"],
+            "q": context["q"],
         },
         status_code=status_code,
     )
@@ -223,43 +318,50 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         )
     ).mappings().all()
 
-    month_points: list[dict[str, object]] = []
-    month_cursor = date(today.year, today.month, 1)
+    # Build the 12-month window: 11 months back through current month
+    window_start = date(today.year, today.month, 1)
     for _ in range(11):
-        prev_month = month_cursor.month - 1
-        prev_year = month_cursor.year
-        if prev_month == 0:
-            prev_month = 12
-            prev_year -= 1
-        month_cursor = date(prev_year, prev_month, 1)
-    for _ in range(12):
-        next_month = month_cursor.month + 1
-        next_year = month_cursor.year
-        if next_month == 13:
-            next_month = 1
-            next_year += 1
-        month_end = date(next_year, next_month, 1) - timedelta(days=1)
+        if window_start.month == 1:
+            window_start = date(window_start.year - 1, 12, 1)
+        else:
+            window_start = date(window_start.year, window_start.month - 1, 1)
+    window_end_next = date(today.year, today.month + 1, 1) if today.month < 12 else date(today.year + 1, 1, 1)
+    window_end = window_end_next - timedelta(days=1)
 
-        row = db.execute(
-            text(
-                """
-                SELECT
-                  SUM(CASE WHEN completed_manual THEN 0 ELSE 1 END) AS planned_count,
-                  SUM(CASE WHEN completed_manual THEN 1 ELSE 0 END) AS completed_count
-                FROM cvm_month_entries
-                WHERE planned_date BETWEEN :start_date AND :end_date
-                """
-            ),
-            {"start_date": month_cursor, "end_date": month_end},
-        ).mappings().first()
+    # Single query replacing the previous 12-query loop
+    month_rows = db.execute(
+        text(
+            """
+            SELECT
+              EXTRACT(YEAR FROM planned_date)::int AS yr,
+              EXTRACT(MONTH FROM planned_date)::int AS mo,
+              SUM(CASE WHEN completed_manual THEN 0 ELSE 1 END)::int AS planned_count,
+              SUM(CASE WHEN completed_manual THEN 1 ELSE 0 END)::int AS completed_count
+            FROM cvm_month_entries
+            WHERE planned_date BETWEEN :start_date AND :end_date
+            GROUP BY yr, mo
+            ORDER BY yr, mo
+            """
+        ),
+        {"start_date": window_start, "end_date": window_end},
+    ).mappings().all()
+    month_data_map = {(r["yr"], r["mo"]): r for r in month_rows}
+
+    month_points: list[dict[str, object]] = []
+    cursor = window_start
+    for _ in range(12):
+        row_data = month_data_map.get((cursor.year, cursor.month), {})
         month_points.append(
             {
-                "label": month_cursor.strftime("%b %y"),
-                "planned": int(row["planned_count"] or 0),
-                "completed": int(row["completed_count"] or 0),
+                "label": cursor.strftime("%b %y"),
+                "planned": int(row_data.get("planned_count") or 0),
+                "completed": int(row_data.get("completed_count") or 0),
             }
         )
-        month_cursor = date(next_year, next_month, 1)
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
 
     settings = db.execute(
         text("SELECT calendar_year, week_start_day FROM calendar_settings WHERE id = 1")
@@ -292,8 +394,13 @@ def stores_alias():
 
 
 @app.get("/customers")
-def customers_page(request: Request, db: Session = Depends(get_db)):
-    return render_customers_page(request, db)
+def customers_page(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    q: str = Query(default=""),
+    db: Session = Depends(get_db),
+):
+    return render_customers_page(request, db, page=page, q=q)
 
 
 @app.post("/customers")
@@ -373,8 +480,84 @@ def create_customer(
     return RedirectResponse(url="/customers", status_code=303)
 
 
+@app.post("/customers/{customer_id}/update")
+def update_customer(
+    request: Request,
+    customer_id: int,
+    cust_code: str = Form(...),
+    name: str = Form(...),
+    trade_name: str = Form(""),
+    territory_name: str = Form(""),
+    group_name: str = Form(""),
+    iws_code: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    ensure_customer_exists(db, customer_id)
+    vals = {
+        "cust_code": cust_code.strip(),
+        "name": name.strip(),
+        "trade_name": trade_name.strip(),
+        "territory_name": territory_name.strip(),
+        "group_name": group_name.strip(),
+        "iws_code": iws_code.strip(),
+    }
+    if not vals["cust_code"] or not vals["name"]:
+        raise HTTPException(status_code=400, detail="Cust Code and Customer Name are required.")
+
+    try:
+        territory_id = None
+        if vals["territory_name"]:
+            territory = db.execute(
+                text("SELECT id FROM territories WHERE name = :name"), {"name": vals["territory_name"]}
+            ).mappings().first()
+            if territory is None:
+                territory_id = db.execute(
+                    text("INSERT INTO territories (name) VALUES (:name) RETURNING id"),
+                    {"name": vals["territory_name"]},
+                ).scalar_one()
+            else:
+                territory_id = territory["id"]
+
+        db.execute(
+            text(
+                """
+                UPDATE customers
+                SET cust_code = :cust_code,
+                    name = :name,
+                    trade_name = NULLIF(:trade_name, ''),
+                    territory_id = :territory_id,
+                    group_name = NULLIF(:group_name, ''),
+                    iws_code = NULLIF(:iws_code, '')
+                WHERE id = :customer_id
+                """
+            ),
+            {
+                "customer_id": customer_id,
+                "cust_code": vals["cust_code"],
+                "name": vals["name"],
+                "trade_name": vals["trade_name"],
+                "territory_id": territory_id,
+                "group_name": vals["group_name"],
+                "iws_code": vals["iws_code"],
+            },
+        )
+        db.commit()
+    except (IntegrityError, DataError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Could not update customer. Check for duplicate customer code.") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unexpected database error while updating customer")
+        raise HTTPException(status_code=500, detail="Unexpected server error while updating customer.") from exc
+
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if is_ajax:
+        return JSONResponse({"ok": True})
+    return RedirectResponse(url="/customers", status_code=303)
+
+
 @app.post("/customers/{customer_id}/delete")
-def delete_customer(customer_id: int, db: Session = Depends(get_db)):
+def delete_customer(request: Request, customer_id: int, db: Session = Depends(get_db)):
     ensure_customer_exists(db, customer_id)
 
     try:
@@ -394,6 +577,9 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
         logger.exception("Unexpected database error while deleting customer")
         raise HTTPException(status_code=500, detail="Unexpected server error while deleting customer.") from exc
 
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if is_ajax:
+        return JSONResponse({"ok": True})
     return RedirectResponse(url="/customers", status_code=303)
 
 
@@ -405,6 +591,7 @@ def products_page(
     action: str = Query(default=""),
     status: str = Query(default=""),
     q: str = Query(default=""),
+    page: int = Query(default=1, ge=1),
     db: Session = Depends(get_db),
 ):
     territory_filter = territory.strip()
@@ -468,7 +655,21 @@ def products_page(
         )
         sql_params["text_filter"] = f"%{text_filter.lower()}%"
 
+    prod_page_size = PAGE_SIZE_DEFAULT
+    prod_offset = (max(page, 1) - 1) * prod_page_size
+
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    count_sql = f"""
+        SELECT COUNT(*)
+        FROM products p
+        JOIN customers c ON c.id = p.customer_id
+        LEFT JOIN territories t ON t.id = c.territory_id
+        {where_sql}
+    """
+    total_products = db.execute(text(count_sql), sql_params).scalar_one()
+    total_pages_prod = max(1, (total_products + prod_page_size - 1) // prod_page_size)
+
+    paginated_params = {**sql_params, "limit": prod_page_size, "offset": prod_offset}
     products = db.execute(
         text(
             f"""
@@ -494,9 +695,10 @@ def products_page(
             ) lv ON lv.customer_id = p.customer_id
             {where_sql}
             ORDER BY c.cust_code, p.product_name
+            LIMIT :limit OFFSET :offset
             """
         ),
-        sql_params,
+        paginated_params,
     ).mappings().all()
     return templates.TemplateResponse(
         "products.html",
@@ -514,6 +716,10 @@ def products_page(
                 "status": status_filter,
                 "q": text_filter,
             },
+            "total": total_products,
+            "page": page,
+            "page_size": prod_page_size,
+            "total_pages": total_pages_prod,
         },
     )
 
@@ -909,6 +1115,109 @@ def cvm_month_update(
     return RedirectResponse(url=f"/cvm?year={year}{territory_param}", status_code=303)
 
 
+@app.post("/cvm/bulk-update")
+async def cvm_bulk_update(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Bulk update CVM entries for multiple customers in a given month/year."""
+    form = await request.form()
+    year_raw = form.get("year", "")
+    month_raw = form.get("month", "")
+    action = str(form.get("action", "")).strip()
+    planned_date_raw = str(form.get("planned_date", "")).strip()
+    customer_ids = form.getlist("customer_ids")
+
+    try:
+        year = int(str(year_raw))
+        month = int(str(month_raw))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid year or month.")
+
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="Invalid month.")
+
+    if not customer_ids:
+        return JSONResponse({"ok": True, "updated": 0})
+
+    int_ids = []
+    for cid in customer_ids:
+        try:
+            int_ids.append(int(str(cid)))
+        except (ValueError, TypeError):
+            pass
+
+    if not int_ids:
+        return JSONResponse({"ok": True, "updated": 0})
+
+    planned_date_value = None
+    if planned_date_raw:
+        planned_date_value = parse_optional_date(planned_date_raw, "planned_date")
+
+    try:
+        if action == "mark_complete":
+            for cid in int_ids:
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO cvm_month_entries
+                          (customer_id, year, month, planned_date, completed_manual, updated_at)
+                        VALUES (:cid, :year, :month,
+                          COALESCE((SELECT planned_date FROM cvm_month_entries WHERE customer_id=:cid AND year=:year AND month=:month), NOW()::date),
+                          TRUE, NOW())
+                        ON CONFLICT (customer_id, year, month)
+                        DO UPDATE SET completed_manual = TRUE, updated_at = NOW()
+                        """
+                    ),
+                    {"cid": cid, "year": year, "month": month},
+                )
+        elif action == "mark_incomplete":
+            for cid in int_ids:
+                db.execute(
+                    text(
+                        """
+                        UPDATE cvm_month_entries
+                        SET completed_manual = FALSE, updated_at = NOW()
+                        WHERE customer_id = :cid AND year = :year AND month = :month
+                        """
+                    ),
+                    {"cid": cid, "year": year, "month": month},
+                )
+        elif action == "set_date" and planned_date_value:
+            for cid in int_ids:
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO cvm_month_entries
+                          (customer_id, year, month, planned_date, completed_manual, updated_at)
+                        VALUES (:cid, :year, :month, :planned_date, FALSE, NOW())
+                        ON CONFLICT (customer_id, year, month)
+                        DO UPDATE SET planned_date = EXCLUDED.planned_date, updated_at = NOW()
+                        """
+                    ),
+                    {"cid": cid, "year": year, "month": month, "planned_date": planned_date_value},
+                )
+        elif action == "clear":
+            for cid in int_ids:
+                db.execute(
+                    text("DELETE FROM cvm_month_entries WHERE customer_id=:cid AND year=:year AND month=:month"),
+                    {"cid": cid, "year": year, "month": month},
+                )
+        else:
+            raise HTTPException(status_code=400, detail="Unknown bulk action.")
+
+        db.commit()
+    except (IntegrityError, DataError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Bulk update failed.") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Unexpected DB error during bulk CVM update")
+        raise HTTPException(status_code=500, detail="Unexpected server error during bulk update.") from exc
+
+    return JSONResponse({"ok": True, "updated": len(int_ids)})
+
+
 @app.post("/cvm/notes-update")
 def cvm_notes_update(
     customer_id: int = Form(...),
@@ -951,6 +1260,7 @@ def import_page(request: Request):
             "upsert_policy": "merge",
             "validation_mode": "standard",
             "duplicate_policy": "last_wins",
+            "preview_token": "",
         },
     )
 
@@ -964,6 +1274,7 @@ async def import_workbook(
     upsert_policy: str = Form("merge"),
     validation_mode: str = Form("standard"),
     duplicate_policy: str = Form("last_wins"),
+    preview_token: str = Form(""),
     db: Session = Depends(get_db),
 ):
     mode = import_mode.strip().lower() or "apply"
@@ -1005,6 +1316,26 @@ async def import_workbook(
             )
 
     payload = await workbook_file.read()
+
+    # Guard: apply requires a valid preview token from the same file+options
+    if mode == "apply" and not _validate_preview_token(preview_token):
+        return templates.TemplateResponse(
+            "import.html",
+            {
+                "request": request,
+                "result": None,
+                "error": "Run a successful Preview first before applying. Your preview may have expired (30 min limit).",
+                "uploaded_name": workbook_file.filename or "",
+                "year_override": year_override,
+                "import_mode": "preview",
+                "upsert_policy": upsert_policy,
+                "validation_mode": validation_mode,
+                "duplicate_policy": duplicate_policy,
+                "preview_token": "",
+            },
+            status_code=400,
+        )
+
     try:
         result = import_planner_workbook(
             db,
@@ -1018,6 +1349,15 @@ async def import_workbook(
         )
         if mode == "preview":
             db.rollback()
+            new_token = _make_preview_token(
+                payload,
+                workbook_file.filename or "workbook.xlsx",
+                year_value,
+                upsert_policy,
+                validation_mode,
+                duplicate_policy,
+            )
+            _store_preview_token(new_token)
         else:
             if result.get("can_apply", True):
                 db.commit()
@@ -1035,9 +1375,11 @@ async def import_workbook(
                         "upsert_policy": upsert_policy,
                         "validation_mode": validation_mode,
                         "duplicate_policy": duplicate_policy,
+                        "preview_token": preview_token,
                     },
                     status_code=400,
                 )
+            new_token = ""
         return templates.TemplateResponse(
             "import.html",
             {
@@ -1050,6 +1392,7 @@ async def import_workbook(
                 "upsert_policy": upsert_policy,
                 "validation_mode": validation_mode,
                 "duplicate_policy": duplicate_policy,
+                "preview_token": new_token if mode == "preview" else "",
             },
         )
     except HTTPException as exc:
@@ -1066,6 +1409,7 @@ async def import_workbook(
                 "upsert_policy": upsert_policy,
                 "validation_mode": validation_mode,
                 "duplicate_policy": duplicate_policy,
+                "preview_token": "",
             },
             status_code=400,
         )
@@ -1083,6 +1427,7 @@ async def import_workbook(
                 "upsert_policy": upsert_policy,
                 "validation_mode": validation_mode,
                 "duplicate_policy": duplicate_policy,
+                "preview_token": "",
             },
             status_code=400,
         )
@@ -1101,6 +1446,7 @@ async def import_workbook(
                 "upsert_policy": upsert_policy,
                 "validation_mode": validation_mode,
                 "duplicate_policy": duplicate_policy,
+                "preview_token": "",
             },
             status_code=500,
         )

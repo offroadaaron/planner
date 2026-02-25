@@ -1129,6 +1129,8 @@ function ExportReportDialog({
 }
 
 function VisitsTrendChart({ series, loading, theme }) {
+  const [tooltip, setTooltip] = useState(null);
+
   const points = useMemo(() => {
     const safe = Array.isArray(series) && series.length > 0 ? series : [];
     const maxY = Math.max(
@@ -1137,25 +1139,48 @@ function VisitsTrendChart({ series, loading, theme }) {
     );
     const width = 640;
     const height = 260;
-    const padX = 34;
+    const padX = 40;
     const padY = 24;
 
+    const getXY = (key, idx) => {
+      const x = padX + (idx * (width - padX * 2)) / Math.max(1, safe.length - 1);
+      const y = height - padY - (Number(safe[idx][key] || 0) / maxY) * (height - padY * 2);
+      return { x, y };
+    };
+
     const getPolyline = (key) =>
-      safe
-        .map((item, idx) => {
-          const x = padX + (idx * (width - padX * 2)) / Math.max(1, safe.length - 1);
-          const y = height - padY - (Number(item[key] || 0) / maxY) * (height - padY * 2);
-          return `${x},${y}`;
-        })
-        .join(" ");
+      safe.map((_, idx) => { const { x, y } = getXY(key, idx); return `${x},${y}`; }).join(" ");
+
+    // Completion rate (%) line — mapped to same y-scale, normalized 0-100%
+    const getCompletionPct = (item) => {
+      const planned = Number(item.planned || 0);
+      const completed = Number(item.completed || 0);
+      return planned > 0 ? Math.round((completed / planned) * 100) : 0;
+    };
+
+    const getPctPolyline = () => {
+      const pctMax = 100;
+      return safe.map((item, idx) => {
+        const x = padX + (idx * (width - padX * 2)) / Math.max(1, safe.length - 1);
+        const pct = getCompletionPct(item);
+        const y = height - padY - (pct / pctMax) * (height - padY * 2);
+        return `${x},${y}`;
+      }).join(" ");
+    };
 
     const ticks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
       const y = height - padY - ratio * (height - padY * 2);
-      return {
-        y,
-        value: Math.round(maxY * ratio),
-      };
+      return { y, value: Math.round(maxY * ratio) };
     });
+
+    const dataPoints = safe.map((item, idx) => ({
+      ...getXY("planned", idx),
+      planned: Number(item.planned || 0),
+      completed: Number(item.completed || 0),
+      pct: getCompletionPct(item),
+      label: item.label,
+      idx,
+    }));
 
     return {
       safe,
@@ -1163,7 +1188,9 @@ function VisitsTrendChart({ series, loading, theme }) {
       height,
       plannedLine: getPolyline("planned"),
       completedLine: getPolyline("completed"),
+      pctLine: getPctPolyline(),
       ticks,
+      dataPoints,
     };
   }, [series]);
 
@@ -1180,6 +1207,9 @@ function VisitsTrendChart({ series, loading, theme }) {
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Completed
             </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> % Done
+            </span>
           </span>
         }
       />
@@ -1195,9 +1225,27 @@ function VisitsTrendChart({ series, loading, theme }) {
         />
       ) : (
         <div
-          className="overflow-x-auto rounded-xl border border-slate-100 bg-slate-50/70 p-2 shadow-inner"
+          className="relative overflow-x-auto rounded-xl border border-slate-100 bg-slate-50/70 p-2 shadow-inner"
           style={{ WebkitOverflowScrolling: "touch" }}
+          onMouseLeave={() => setTooltip(null)}
         >
+          {tooltip ? (
+            <div
+              style={{
+                position: "absolute",
+                left: Math.min(tooltip.x + 12, points.width - 130),
+                top: Math.max(tooltip.y - 60, 4),
+                pointerEvents: "none",
+                zIndex: 20,
+              }}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-lg text-xs text-slate-800 min-w-[120px]"
+            >
+              <p className="font-semibold mb-1">{tooltip.label}</p>
+              <p>Planned: <strong>{tooltip.planned}</strong></p>
+              <p>Completed: <strong>{tooltip.completed}</strong></p>
+              <p>Rate: <strong>{tooltip.pct}%</strong></p>
+            </div>
+          ) : null}
           <svg
             viewBox={`0 0 ${points.width} ${points.height}`}
             className="h-56 w-full min-w-[580px]"
@@ -1207,28 +1255,45 @@ function VisitsTrendChart({ series, loading, theme }) {
             {points.ticks.map((tick, idx) => (
               <g key={idx}>
                 <line
-                  x1="34"
-                  x2={points.width - 34}
+                  x1="40"
+                  x2={points.width - 40}
                   y1={tick.y}
                   y2={tick.y}
                   stroke={theme === "dark" ? "rgba(255,255,255,0.12)" : "#e2e8f0"}
                   strokeDasharray="4 4"
                 />
-                <text x="6" y={tick.y + 4} fill={theme === "dark" ? "#9aa3b2" : "#64748b"} fontSize="11">
+                <text x="4" y={tick.y + 4} fill={theme === "dark" ? "#9aa3b2" : "#64748b"} fontSize="11">
                   {tick.value}
                 </text>
               </g>
             ))}
-            <polyline fill="none" stroke={theme === "dark" ? "#8a94a8" : "#64748b"} strokeWidth="3" points={points.plannedLine} />
-            <polyline fill="none" stroke="#22c55e" strokeWidth="3" points={points.completedLine} />
-            {points.safe.map((item, idx) => {
-              const x = 34 + (idx * (points.width - 68)) / Math.max(1, points.safe.length - 1);
-              const showLabel = idx % 2 === 0 || idx === points.safe.length - 1;
+            <polyline fill="none" stroke={theme === "dark" ? "#8a94a8" : "#64748b"} strokeWidth="2" strokeDasharray="5 3" points={points.plannedLine} />
+            <polyline fill="none" stroke="#22c55e" strokeWidth="2.5" points={points.completedLine} />
+            <polyline fill="none" stroke="#f59e0b" strokeWidth="2" strokeDasharray="3 3" points={points.pctLine} />
+            {points.dataPoints.map((pt) => {
+              const showLabel = pt.idx % 2 === 0 || pt.idx === points.safe.length - 1;
+              const compY = points.height - 24 - (pt.pct / 100) * (points.height - 48);
+              const completedY = points.height - 24 - (pt.completed / Math.max(1, ...points.safe.map((s) => Math.max(s.planned, s.completed)))) * (points.height - 48);
               return (
-                <g key={item.label + idx}>
+                <g
+                  key={pt.label + pt.idx}
+                  onMouseEnter={() => setTooltip({ x: pt.x, y: pt.y, ...pt })}
+                >
+                  <circle cx={pt.x} cy={pt.y} r="4" fill={theme === "dark" ? "#8a94a8" : "#64748b"} />
+                  <circle cx={pt.x} cy={completedY} r="4" fill="#22c55e" />
+                  <circle cx={pt.x} cy={compY} r="3.5" fill="#f59e0b" />
+                  {/* Invisible wide hit-area for tooltip */}
+                  <rect
+                    x={pt.x - 12}
+                    y={24}
+                    width={24}
+                    height={points.height - 48}
+                    fill="transparent"
+                    style={{ cursor: "crosshair" }}
+                  />
                   {showLabel ? (
-                    <text x={x} y={points.height - 6} textAnchor="middle" fill={theme === "dark" ? "#9aa3b2" : "#64748b"} fontSize="11">
-                      {item.label}
+                    <text x={pt.x} y={points.height - 6} textAnchor="middle" fill={theme === "dark" ? "#9aa3b2" : "#64748b"} fontSize="11">
+                      {pt.label}
                     </text>
                   ) : null}
                 </g>

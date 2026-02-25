@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+{% endblock %}
+
 {% block page_header %}
 <section class="section-card page-header">
   <div>
@@ -19,7 +23,7 @@
   </div>
 
   <div class="product-toolbar-grid">
-    <form method="post" action="/products" class="toolbar">
+    <form method="post" action="/products" class="grid">
       <input name="product_name" placeholder="Product" required />
       <select name="customer_id" required>
         <option value="">Customer</option>
@@ -83,11 +87,24 @@
     </form>
   </div>
 
-  <p class="subtle">Showing {{ products|length }} result{% if products|length != 1 %}s{% endif %}</p>
+  <div class="products-footer-row">
+    <p class="subtle">Showing {{ products|length }} result{% if products|length != 1 %}s{% endif %}</p>
+    <div class="inline-dropdown products-export-wrap">
+      <details class="inline-dropdown">
+        <summary class="button-secondary">Export</summary>
+        <div class="inline-dropdown-panel" role="menu" aria-label="Export menu">
+          <button id="prod-export-csv" type="button" role="menuitem">Export CSV</button>
+          <button id="prod-export-xlsx" type="button" role="menuitem">Export XLSX</button>
+        </div>
+      </details>
+    </div>
+  </div>
 </section>
 
+<div id="prod-toast-stack" class="cvm-toast-stack" aria-live="polite" aria-atomic="true"></div>
+
 <section class="section-card table-scroll">
-  <table class="matrix-table is-dense">
+  <table class="matrix-table is-dense" id="prod-table">
     <thead>
       <tr>
         <th>Product</th>
@@ -104,13 +121,14 @@
     </thead>
     <tbody>
       {% for p in products %}
-      <tr>
-        <form method="post" action="/products/{{ p.id }}">
+      {# Form defined outside table; inputs reference it via form="..." attribute (valid HTML5) #}
+      <form id="pf-{{ p.id }}" method="post" action="/products/{{ p.id }}" style="display:none"></form>
+      <tr data-prod-id="{{ p.id }}">
           <td>
-            <input type="text" name="product_name" value="{{ p.product_name }}" required />
+            <input form="pf-{{ p.id }}" type="text" name="product_name" value="{{ p.product_name }}" required />
           </td>
           <td>
-            <select name="customer_id" required>
+            <select form="pf-{{ p.id }}" name="customer_id" required>
               {% for c in customers %}
               <option value="{{ c.id }}" {% if c.id == p.customer_id %}selected{% endif %}>
                 {{ c.cust_code }} - {{ c.name }}
@@ -118,10 +136,10 @@
               {% endfor %}
             </select>
           </td>
-          <td>{{ p.territory }}</td>
-          <td>{{ p.last_visit or '-' }}</td>
+          <td data-territory>{{ p.territory }}</td>
+          <td data-last-visit>{{ p.last_visit or '-' }}</td>
           <td>
-            <select name="action">
+            <select form="pf-{{ p.id }}" name="action">
               <option value=""></option>
               {% for a in actions %}
               <option value="{{ a }}" {% if p.action == a %}selected{% endif %}>{{ a }}</option>
@@ -129,18 +147,17 @@
             </select>
           </td>
           <td>
-            <select name="status">
+            <select form="pf-{{ p.id }}" name="status">
               <option value=""></option>
               {% for s in statuses %}
               <option value="{{ s }}" {% if p.status == s %}selected{% endif %}>{{ s }}</option>
               {% endfor %}
             </select>
           </td>
-          <td><input type="text" name="next_action" value="{{ p.next_action or '' }}" /></td>
-          <td><input type="date" name="last_contact" value="{{ p.last_contact or '' }}" /></td>
-          <td><input type="text" name="notes" value="{{ p.notes or '' }}" /></td>
-          <td><button type="submit">Save</button></td>
-        </form>
+          <td><input form="pf-{{ p.id }}" type="text" name="next_action" value="{{ p.next_action or '' }}" /></td>
+          <td><input form="pf-{{ p.id }}" type="date" name="last_contact" value="{{ p.last_contact or '' }}" /></td>
+          <td><input form="pf-{{ p.id }}" type="text" name="notes" value="{{ p.notes or '' }}" /></td>
+          <td><button form="pf-{{ p.id }}" type="submit">Save</button></td>
       </tr>
       {% else %}
       <tr class="table-empty-row">
@@ -155,5 +172,101 @@
       {% endfor %}
     </tbody>
   </table>
+
+  {% if total_pages > 1 %}
+  <nav class="pagination-bar" aria-label="Product pages">
+    {% if page > 1 %}
+    <a class="pagination-btn" href="/products?page={{ page - 1 }}&q={{ filters.q }}&territory={{ filters.territory }}&action={{ filters.action }}&status={{ filters.status }}{% if filters.customer_id %}&customer_id={{ filters.customer_id }}{% endif %}">&lsaquo; Prev</a>
+    {% else %}
+    <span class="pagination-btn disabled">&lsaquo; Prev</span>
+    {% endif %}
+    <span class="pagination-info">Page {{ page }} of {{ total_pages }} &mdash; {{ total }} products</span>
+    {% if page < total_pages %}
+    <a class="pagination-btn" href="/products?page={{ page + 1 }}&q={{ filters.q }}&territory={{ filters.territory }}&action={{ filters.action }}&status={{ filters.status }}{% if filters.customer_id %}&customer_id={{ filters.customer_id }}{% endif %}">Next &rsaquo;</a>
+    {% else %}
+    <span class="pagination-btn disabled">Next &rsaquo;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
 </section>
+
+<script>
+  (() => {
+    const toastStack = document.getElementById("prod-toast-stack");
+    const exportMenus = Array.from(document.querySelectorAll(".products-export-wrap .inline-dropdown"));
+
+    const pushToast = (message, type = "success") => {
+      if (!toastStack) return;
+      const toast = document.createElement("div");
+      toast.className = `cvm-toast${type === "error" ? " is-error" : ""}`;
+      toast.setAttribute("role", "status");
+      toast.textContent = message;
+      toastStack.appendChild(toast);
+      setTimeout(() => { toast.style.opacity = "0"; }, 3000);
+      setTimeout(() => { toast.remove(); }, 3400);
+    };
+
+    if (exportMenus.length) {
+      window.addEventListener("click", (event) => {
+        exportMenus.forEach((menu) => {
+          if (!menu.contains(event.target)) menu.removeAttribute("open");
+        });
+      });
+    }
+
+    const collectProductRows = () => {
+      const rows = [];
+      document.querySelectorAll("#prod-table tbody tr[data-prod-id]").forEach((row) => {
+        rows.push({
+          product: row.querySelector("input[name='product_name']")?.value || "",
+          customer: row.querySelector("select[name='customer_id'] option:checked")?.textContent.trim() || "",
+          territory: row.querySelector("[data-territory]")?.textContent.trim() || "",
+          last_visit: row.querySelector("[data-last-visit]")?.textContent.trim() || "",
+          action: row.querySelector("select[name='action'] option:checked")?.value || "",
+          status: row.querySelector("select[name='status'] option:checked")?.value || "",
+          next_action: row.querySelector("input[name='next_action']")?.value || "",
+          last_contact: row.querySelector("input[name='last_contact']")?.value || "",
+          notes: row.querySelector("input[name='notes']")?.value || "",
+        });
+      });
+      return rows;
+    };
+
+    const escapeCell = (v) => {
+      const s = String(v ?? "");
+      if (s.includes('"') || s.includes(",") || s.includes("\n")) return '"' + s.replaceAll('"', '""') + '"';
+      return s;
+    };
+
+    const downloadCsv = (rows) => {
+      if (!rows.length) { pushToast("No rows to export.", "error"); return; }
+      const headers = Object.keys(rows[0]);
+      const csv = [headers.join(",")].concat(rows.map((r) => headers.map((h) => escapeCell(r[h])).join(","))).join("\n");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+      link.download = `products-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link); link.click(); link.remove();
+      pushToast(`Exported ${rows.length} products to CSV.`);
+    };
+
+    const downloadXlsx = (rows) => {
+      if (!rows.length) { pushToast("No rows to export.", "error"); return; }
+      if (!window.XLSX) { pushToast("XLSX export unavailable.", "error"); return; }
+      const ws = window.XLSX.utils.json_to_sheet(rows);
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, "Products");
+      window.XLSX.writeFile(wb, `products-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      pushToast(`Exported ${rows.length} products to XLSX.`);
+    };
+
+    document.getElementById("prod-export-csv")?.addEventListener("click", () => {
+      downloadCsv(collectProductRows());
+      exportMenus.forEach((m) => m.removeAttribute("open"));
+    });
+    document.getElementById("prod-export-xlsx")?.addEventListener("click", () => {
+      downloadXlsx(collectProductRows());
+      exportMenus.forEach((m) => m.removeAttribute("open"));
+    });
+  })();
+</script>
 {% endblock %}
