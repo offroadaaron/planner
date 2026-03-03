@@ -20,6 +20,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import main
 
 
+def _sheet_by_exact_or_prefix(workbook, exact: str, prefix: str | None = None):
+    for name in workbook.sheetnames:
+        if name.strip().lower() == exact.strip().lower():
+            return workbook[name]
+    if prefix:
+        target = prefix.strip().lower()
+        for name in workbook.sheetnames:
+            if name.strip().lower().startswith(target):
+                return workbook[name]
+    return None
+
+
 def _store_import_token(
     workbook_bytes: bytes,
     filename: str,
@@ -907,6 +919,128 @@ def test_cvm_notes_update_persists(client_and_engine):
         note = conn.execute(text("SELECT cvm_notes FROM customers WHERE id = 1")).scalar_one()
 
     assert note == "Call quarterly"
+
+
+def test_export_workbook_generates_expected_structure(client_and_engine):
+    if load_workbook is None:
+        pytest.skip("openpyxl is not installed in this test environment")
+
+    client, engine = client_and_engine
+    seed_territory(engine, 1, "NSW (North)")
+    seed_customer(engine, 1, "C100", "Alpha Store")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE customers
+                SET territory_id = 1,
+                    trade_name = 'Alpha Trade',
+                    group_name = 'IWS',
+                    group_2_iws = 'WORKLOCKER',
+                    iws_code = 'IWS001',
+                    old_value = '',
+                    old_name = '',
+                    door_count = 2,
+                    cvm_notes = 'Needs monthly visit'
+                WHERE id = 1
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO stores (
+                  id, customer_id, address_1, city, state, postcode, country,
+                  main_contact, owner_name, owner_phone, owner_email,
+                  store_manager_name, store_phone, store_email,
+                  market_manager_name, marketing_phone, marketing_email,
+                  account_dept_name, accounting_phone, accounting_email, notes, created_at
+                )
+                VALUES (
+                  1, 1, '1 Test St', 'Newcastle', 'NSW', '2300', 'AUSTRALIA',
+                  'Main Contact', 'Owner Name', '0400000000', 'owner@example.com',
+                  'Store Manager', '0200000000', 'store@example.com',
+                  'Market Manager', '0300000000', 'marketing@example.com',
+                  'Accounts', '0400000001', 'accounts@example.com', 'Store notes', NOW()
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO cvm_month_entries
+                  (id, customer_id, year, month, planned_date, completed_manual, updated_at)
+                VALUES
+                  (1, 1, 2026, 1, '2026-01-20', 1, NOW())
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO products
+                  (id, customer_id, product_name, action, status, next_action, last_contact, notes, created_at, updated_at)
+                VALUES
+                  (1, 1, 'DURA X SELL IN', 'CALL', 'ORDERED', 'Follow up', '2026-01-06', 'Imported note', NOW(), NOW())
+                """
+            )
+        )
+
+    response = client.get("/export/workbook?year=2026")
+    assert response.status_code == 200
+    assert "attachment; filename=" in response.headers.get("content-disposition", "")
+
+    workbook = load_workbook(BytesIO(response.content), keep_vba=True)
+    assert _sheet_by_exact_or_prefix(workbook, "Get Data -Sample", prefix="Get Data -") is not None
+    assert _sheet_by_exact_or_prefix(workbook, "Customer Details ", prefix="Customer Details") is not None
+    assert _sheet_by_exact_or_prefix(workbook, "CVM") is not None or _sheet_by_exact_or_prefix(workbook, " CVM") is not None
+    assert "Database" in workbook.sheetnames
+    assert "JANUARY" in workbook.sheetnames
+
+    cvm = _sheet_by_exact_or_prefix(workbook, "CVM") or _sheet_by_exact_or_prefix(workbook, " CVM")
+    assert cvm is not None
+    c4 = cvm["C4"].value
+    e4 = cvm["E4"].value
+    assert c4 == "C100" or (isinstance(c4, str) and c4.startswith("="))
+    assert e4 == "Alpha Store" or (isinstance(e4, str) and e4.startswith("="))
+    assert str(cvm["K4"].value).startswith("2026-01-20")
+    assert bool(cvm["L4"].value) is True
+
+    january = workbook["JANUARY"]
+    assert january["R4"].value == 2026
+
+    database = workbook["Database"]
+    assert database.cell(row=4, column=28).value == "ACTION"
+    assert database.cell(row=3, column=28).value == "DURA X SELL IN"
+
+
+def test_export_workbook_respects_territory_filter(client_and_engine):
+    if load_workbook is None:
+        pytest.skip("openpyxl is not installed in this test environment")
+
+    client, engine = client_and_engine
+    seed_territory(engine, 1, "NSW (North)")
+    seed_territory(engine, 2, "QLD (South)")
+    seed_customer(engine, 1, "C100", "North Customer")
+    seed_customer(engine, 2, "C200", "South Customer")
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE customers SET territory_id = 1 WHERE id = 1"))
+        conn.execute(text("UPDATE customers SET territory_id = 2 WHERE id = 2"))
+
+    response = client.get("/export/workbook?year=2026&territory_id=1")
+    assert response.status_code == 200
+
+    workbook = load_workbook(BytesIO(response.content), keep_vba=True)
+    get_data = _sheet_by_exact_or_prefix(workbook, "Get Data -Sample", prefix="Get Data -")
+    assert get_data is not None
+    exported_codes = []
+    for row in get_data.iter_rows(min_row=2, values_only=True):
+        cust_code = row[4] if len(row) > 4 else None
+        if cust_code:
+            exported_codes.append(cust_code)
+
+    assert exported_codes == ["C100"]
 
 
 def test_import_workbook_ingests_core_data(client_and_engine):

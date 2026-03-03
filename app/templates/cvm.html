@@ -43,6 +43,7 @@
         <details class="inline-dropdown">
           <summary class="button-secondary">Export</summary>
           <div class="inline-dropdown-panel" role="menu" aria-label="Export menu">
+            <a href="/export/workbook?year={{ year }}{% if territory_id %}&territory_id={{ territory_id }}{% endif %}" role="menuitem">Export Workbook</a>
             <button id="cvm-export-csv" type="button" role="menuitem">Export CSV</button>
             <button id="cvm-export-xlsx" type="button" role="menuitem">Export XLSX</button>
           </div>

@@ -378,6 +378,17 @@ function MobileNavSheet({ open, onClose }) {
             Import
           </a>
           <a
+            href="/export/workbook"
+            className={cx(
+              touchTarget(),
+              "inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+            )}
+          >
+            {Download ? <Download size={16} /> : null}
+            Export
+          </a>
+          <a
             href="/cvm"
             className={cx(
               touchTarget(),
@@ -448,6 +459,17 @@ function HeaderImportMenu() {
           )}
         >
           View Last Summary
+        </a>
+        <a
+          href="/export/workbook"
+          onClick={() => setOpen(false)}
+          className={cx(
+            touchTarget(),
+            "inline-flex items-center rounded-lg px-3 text-sm font-medium text-slate-700 hover:bg-slate-100",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          )}
+        >
+          Export Workbook
         </a>
       </div>
       ) : null}

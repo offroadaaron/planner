@@ -5,10 +5,11 @@ import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
@@ -16,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, engine
+from app.workbook_export import export_planner_workbook
 from app.workbook_import import import_planner_workbook
 
 MONTH_SHORT = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
@@ -1262,6 +1264,39 @@ def import_page(request: Request):
             "duplicate_policy": "last_wins",
             "preview_token": "",
         },
+    )
+
+
+@app.get("/export/workbook")
+def export_workbook(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    territory_id: str = Query(default=""),
+    db: Session = Depends(get_db),
+):
+    territory_id_value = parse_optional_int(territory_id)
+    try:
+        export_payload = export_planner_workbook(
+            db,
+            year=year,
+            territory_id=territory_id_value,
+        )
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        logger.exception("Unexpected database error while exporting workbook")
+        raise HTTPException(status_code=500, detail="Unexpected server error while exporting workbook.") from exc
+
+    extension = export_payload["extension"]
+    media_type = (
+        "application/vnd.ms-excel.sheet.macroEnabled.12"
+        if extension == "xlsm"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    filename = f"planner-export-{export_payload['year']}-{date.today().isoformat()}.{extension}"
+    return StreamingResponse(
+        BytesIO(export_payload["content"]),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
